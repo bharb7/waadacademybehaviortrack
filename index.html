@@ -2764,6 +2764,7 @@ function PublicStudentVoiceForm({dbSt}){
 function App(){
   const [tab,setTab]=React.useState('dashboard');
   const [dbSt,setDbSt]=React.useState('connecting');
+  const [dbErr,setDbErr]=React.useState(null);
   const [user,setUser]=React.useState(null);
   const [authChecked,setAuthChecked]=React.useState(false); // true once onAuthStateChanged has fired once
   const [loginF,setLoginF]=React.useState({email:'',pass:''});
@@ -2773,22 +2774,29 @@ function App(){
   const [navOpen,setNavOpen]=React.useState(false);
   const closeNav=()=>setNavOpen(false);
   const L=k=>t(lang,k);
-  const [data,setData]=React.useState({students:{},incidents:{},studentPositives:{},staff:{},teachers:{},fbas:{},houses:null,classColors:null,housePoints:{},attendance:{},uniformChecks:{},dailyCards:{},resources:[],notifications:[],activeUsers:{},teacherSchedule:{},teacherDutyChecks:{},teacherIncidents:{},teacherPositives:{},libraryBooks:{},libraryLoans:{},libraryMembers:{},rolePermissions:{},staffPermissions:{},parentContacts:{},calendarDays:{},calendarEvents:{},config:{},parentMessages:{},studentVoice:{}});
+  const [data,setData]=React.useState({students:{},incidents:{},studentPositives:{},staff:{},teachers:{},fbas:{},houses:null,classColors:null,housePoints:{},attendance:{},uniformChecks:{},dailyCards:{},resources:[],notifications:[],activeUsers:{},teacherSchedule:{},teacherDutyChecks:{},teacherIncidents:{},teacherPositives:{},libraryBooks:{},libraryLoans:{},libraryMembers:{},rolePermissions:{},staffPermissions:{},parentContacts:{},calendarDays:{},calendarEvents:{},config:{},parentMessages:{},studentVoice:{},nurseCases:{},nurseStaffCases:{},nurseProtocols:{}});
 
   React.useEffect(()=>{
     const ref=db.ref('/btpro');
     ref.on('value',snap=>{
       const v=snap.val()||{};
-      setData(p=>({...p,...v,students:v.students||{},incidents:v.incidents||{},studentPositives:v.studentPositives||{},staff:v.staff||{},teachers:v.teachers||{},fbas:v.fbas||{},houses:v.houses||null,classColors:v.classColors||null,housePoints:v.housePoints||{},attendance:v.attendance||{},uniformChecks:v.uniformChecks||{},dailyCards:v.dailyCards||{},resources:v.resources||[],notifications:v.notifications||[],activeUsers:v.activeUsers||{},teacherSchedule:v.teacherSchedule||{},teacherDutyChecks:v.teacherDutyChecks||{},teacherIncidents:v.teacherIncidents||{},teacherPositives:v.teacherPositives||{},libraryBooks:v.libraryBooks||{},libraryLoans:v.libraryLoans||{},libraryMembers:v.libraryMembers||{},rolePermissions:v.rolePermissions||{},staffPermissions:v.staffPermissions||{},parentContacts:v.parentContacts||{},calendarDays:v.calendarDays||{},calendarEvents:v.calendarEvents||{},config:v.config||{},parentMessages:v.parentMessages||{},studentVoice:v.studentVoice||{}}));
+      setData(p=>({...p,...v,students:v.students||{},incidents:v.incidents||{},studentPositives:v.studentPositives||{},staff:v.staff||{},teachers:v.teachers||{},fbas:v.fbas||{},houses:v.houses||null,classColors:v.classColors||null,housePoints:v.housePoints||{},attendance:v.attendance||{},uniformChecks:v.uniformChecks||{},dailyCards:v.dailyCards||{},resources:v.resources||[],notifications:v.notifications||[],activeUsers:v.activeUsers||{},teacherSchedule:v.teacherSchedule||{},teacherDutyChecks:v.teacherDutyChecks||{},teacherIncidents:v.teacherIncidents||{},teacherPositives:v.teacherPositives||{},libraryBooks:v.libraryBooks||{},libraryLoans:v.libraryLoans||{},libraryMembers:v.libraryMembers||{},rolePermissions:v.rolePermissions||{},staffPermissions:v.staffPermissions||{},parentContacts:v.parentContacts||{},calendarDays:v.calendarDays||{},calendarEvents:v.calendarEvents||{},config:v.config||{},parentMessages:v.parentMessages||{},studentVoice:v.studentVoice||{},nurseCases:v.nurseCases||{},nurseStaffCases:v.nurseStaffCases||{},nurseProtocols:v.nurseProtocols||{}}));
       // Seed the default staff list ONLY when Firebase itself confirms the /staff node is genuinely empty —
       // never based on React's still-loading placeholder state. Checking `v.staff` (the real synced snapshot)
       // instead of `data.staff` (which starts as {} before the first snapshot arrives) fixes a real bug where
       // opening the app before that first snapshot loaded would overwrite the whole staff list back to the
       // 8 built-in defaults, silently deleting any staff you'd added or edited.
       if(!v.staff||Object.keys(v.staff).length===0){const s={};DEF_STAFF.forEach(x=>{s[x.id]=x;});db.ref('/btpro/staff').set(s);}
-      setDbSt('live');
+      setDbSt('live');setDbErr(null);
+    },err=>{
+      // Firebase read was DENIED or network error — show visible banner so users aren't left with empty data and no explanation
+      console.error('Firebase read error:',err);
+      setDbSt('offline');
+      setDbErr(err.code==='PERMISSION_DENIED'
+        ?'Access denied by database rules. Please sign out and sign back in. If the problem persists, contact your administrator.'
+        :'Database read error: '+err.message+'. Please refresh the page.');
     });
-    db.ref('.info/connected').on('value',s=>setDbSt(s.val()?'live':'offline'));
+    db.ref('.info/connected').on('value',s=>{if(s.val()===false)setDbSt('offline');});
     return()=>ref.off();
   },[]);
 
@@ -2939,6 +2947,14 @@ function App(){
           </span>
         </div>
         {notifP&&<NotifPanel ns={dueN} setNs={setDueN} onClose={()=>setNotifP(false)}/>}
+        {dbErr&&(
+          <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:0,padding:'10px 20px',display:'flex',alignItems:'center',gap:12,fontSize:13,color:'#991b1b',zIndex:100,position:'sticky',top:0}}>
+            <span style={{fontSize:20}}>🔒</span>
+            <span style={{flex:1,fontWeight:600}}>{dbErr}</span>
+            <button onClick={async()=>{try{await auth.signOut();}catch(e){}window.location.reload();}} style={{padding:'5px 14px',background:'#dc2626',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:12,whiteSpace:'nowrap'}}>Sign Out & Retry</button>
+            <button onClick={()=>window.location.reload()} style={{padding:'5px 14px',background:'#f97316',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:12,whiteSpace:'nowrap'}}>Refresh</button>
+          </div>
+        )}
         <div className="content">
           {tab==='dashboard'  &&allowed('dashboard')&&<Dashboard data={data} houses={houses} clsCols={clsCols} lang={lang} L={L} setTab={setTab} user={user}/>}
           {tab==='students'   &&allowed('students')&&<Students data={data} sv={sv} up={up} user={user} houses={houses} clsCols={clsCols} lang={lang} L={L}/>}
@@ -4127,6 +4143,7 @@ function Dashboard({data,houses,clsCols,lang,L,setTab,user}){
 
   // ── Nurse / Health dashboard stats ──
   const nurseCases=Object.values(data.nurseCases||{});
+  const nurseStaffCasesDash=Object.values(data.nurseStaffCases||{});
   const todayStr=new Date().toISOString().slice(0,10);
   const nurseCasesToday=nurseCases.filter(c=>c.date===todayStr);
   const nurseOpenCases=nurseCases.filter(c=>c.status==='open');
@@ -4759,6 +4776,7 @@ function Dashboard({data,houses,clsCols,lang,L,setTab,user}){
             {label:isAr?'محوَّلة خارجياً':'Referred Out',val:nurseReferredOpen.length,color:'#f59e0b',bg:'#fffbeb'},
             {label:isAr?'أُبلغ الأهل':'Parent Notified',val:nurseParentOpen.length,color:'#ec4899',bg:'#fdf2f8'},
             {label:isAr?'ملاحظات صحية':'Care-Note Students',val:careFlagged.length,color:'#dc2626',bg:'#fff7f7'},
+            {label:isAr?'حالات الكادر المفتوحة':'Open Staff Cases',val:nurseStaffCasesDash.filter(c=>c.status==='open').length,color:'#0ea5e9',bg:'#f0f9ff'},
           ].map(k=>(
             <div key={k.label} style={{flex:'1 1 90px',minWidth:80,background:k.bg,border:`1px solid ${k.color}33`,borderRadius:10,padding:'10px 12px',textAlign:'center'}}>
               <div style={{fontSize:24,fontWeight:800,color:k.color}}>{k.val}</div>
@@ -4835,6 +4853,21 @@ function Dashboard({data,houses,clsCols,lang,L,setTab,user}){
           </div>
         )}
 
+        {/* Staff cases today / open */}
+        {(()=>{const openSC=nurseStaffCasesDash.filter(c=>c.status==='open');const todaySC=nurseStaffCasesDash.filter(c=>c.date===todayStr);if(!openSC.length&&!todaySC.length)return null;
+          return(<div style={{marginBottom:12,background:'#f0f9ff',borderRadius:8,padding:'10px 12px'}}>
+            <div style={{fontWeight:600,fontSize:12,color:'#0369a1',marginBottom:6}}>👤 {isAr?'حالات الكادر (مفتوحة):':'Open Staff Cases:'} <span style={{fontWeight:800}}>{openSC.length}</span></div>
+            {openSC.slice(0,4).map(c=>(
+              <div key={c.id} style={{display:'flex',alignItems:'center',gap:8,fontSize:12,padding:'4px 0',borderBottom:'1px solid #bae6fd'}}>
+                <span style={{background:sevColor[c.severity]+'22',color:sevColor[c.severity],borderRadius:4,padding:'1px 7px',fontWeight:700,fontSize:11}}>{sevLabel[c.severity]}</span>
+                <strong style={{minWidth:140}}>{c.staffName}</strong>
+                <span style={{color:'#64748b',fontSize:11}}>{c.staffRole}</span>
+                <span style={{marginLeft:'auto',color:'#94a3b8'}}>{c.date} {c.time}</span>
+              </div>
+            ))}
+            {openSC.length>4&&<div style={{fontSize:11,color:'#0ea5e9',marginTop:4,cursor:'pointer'}} onClick={()=>setTab('nurse')}>+{openSC.length-4} more → Open Nurse</div>}
+          </div>);
+        })()}
         {/* Students with directory care notes — collapsible */}
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:careFlagged.length?'pointer':'default',padding:'6px 0'}}
           onClick={()=>careFlagged.length&&setCareDrill(v=>!v)}>
@@ -6585,7 +6618,7 @@ function PhoneImportModal({result,status,drag,setDrag,onFile,onApply,onClose}){
 }
 
 function StuModal({stu,houses,clsCols,onSave,onClose}){
-  const [f,setF]=React.useState({name:'',studentId:'',waadId:'',canvas:'',parentPhone:'',grade:4,classColor:clsCols[0]||'Blue',house:houses[0]?.id||'wolf',notes:'',noteLink:'',...(stu||{})});
+  const [f,setF]=React.useState({name:'',studentId:'',waadId:'',canvas:'',parentPhone:'',motherPhone:'',fatherPhone:'',grade:4,classColor:clsCols[0]||'Blue',house:houses[0]?.id||'wolf',notes:'',noteLink:'',...(stu||{})});
   const u=(k,v)=>setF(p=>({...p,[k]:v}));
   return(
     <div className="mov"><div className="modal mmd">
@@ -6600,7 +6633,11 @@ function StuModal({stu,houses,clsCols,onSave,onClose}){
           <div><label>Canvas Account</label><input value={f.canvas||''} onChange={e=>u('canvas',e.target.value)}/></div>
         </div>
         <div className="fr fr2">
-          <div><label>📱 Parent Phone Number (WhatsApp)</label><input value={f.parentPhone||''} onChange={e=>u('parentPhone',e.target.value)} placeholder="e.g. 05xxxxxxxx or +9665xxxxxxxx" dir="ltr"/></div>
+          <div><label>👩 Mother's Phone (WhatsApp)</label><input value={f.motherPhone||''} onChange={e=>u('motherPhone',e.target.value)} placeholder="e.g. 05xxxxxxxx or +9665xxxxxxxx" dir="ltr"/></div>
+          <div><label>👨 Father's Phone (WhatsApp)</label><input value={f.fatherPhone||''} onChange={e=>u('fatherPhone',e.target.value)} placeholder="e.g. 05xxxxxxxx or +9665xxxxxxxx" dir="ltr"/></div>
+        </div>
+        <div className="fr fr2">
+          <div><label>📱 Primary/Guardian Phone (WhatsApp) <span style={{fontWeight:400,fontSize:11,color:'#94a3b8'}}>— used when no mother/father number specified</span></label><input value={f.parentPhone||''} onChange={e=>u('parentPhone',e.target.value)} placeholder="e.g. 05xxxxxxxx or +9665xxxxxxxx" dir="ltr"/></div>
           <div/>
         </div>
         <div className="fr fr3">
@@ -7356,7 +7393,7 @@ function NurseModule({data,sv,up,user,houses,lang,L}){
   const [searchQ,setSearchQ]=React.useState('');
 
   // form state
-  const blankForm=()=>({studentId:'',complaint:'',treatment:'',severity:'low',parentContacted:false,parentNote:'',referredOut:false,referralNote:'',status:'open',date:new Date().toISOString().slice(0,10),time:new Date().toTimeString().slice(0,5)});
+  const blankForm=()=>({studentId:'',complaint:'',treatment:'',severity:'low',parentContacted:false,parentContactedWho:'',parentContactedPhone:'',parentNote:'',referredOut:false,referralNote:'',status:'open',date:new Date().toISOString().slice(0,10),time:new Date().toTimeString().slice(0,5)});
   const [form,setForm]=React.useState(blankForm());
   const fld=(k,v)=>setForm(f=>({...f,[k]:v}));
 
@@ -7416,6 +7453,54 @@ function NurseModule({data,sv,up,user,houses,lang,L}){
   const openCount=cases.filter(c=>c.status==='open').length;
   const critCount=cases.filter(c=>(c.severity==='high'||c.severity==='critical')&&c.status==='open').length;
 
+  // ── Staff Cases ──────────────────────────────────────────────────────────────
+  const allStaff=React.useMemo(()=>{
+    const staffArr=Object.values(data.staff||{});
+    const teacherArr=Object.values(data.teachers||{}).map(t=>({...t,role:t.role||'Teacher'}));
+    const seen=new Set();
+    return [...staffArr,...teacherArr].filter(p=>{if(!p.id||seen.has(p.id))return false;seen.add(p.id);return true;}).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+  },[data.staff,data.teachers]);
+  const staffCases=Object.values(data.nurseStaffCases||{}).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const [staffSearch,setStaffSearch]=React.useState('');
+  const [staffFormOpen,setStaffFormOpen]=React.useState(false);
+  const [editStaffCase,setEditStaffCase]=React.useState(null);
+  const [sfSearchQ,setSfSearchQ]=React.useState('');
+  const [sfFilterStatus,setSfFilterStatus]=React.useState('all');
+  const blankStaffForm=()=>({staffId:'',staffName:'',complaint:'',treatment:'',severity:'low',notes:'',status:'open',date:new Date().toISOString().slice(0,10),time:new Date().toTimeString().slice(0,5)});
+  const [staffForm,setStaffForm]=React.useState(blankStaffForm());
+  const sfld=(k,v)=>setStaffForm(f=>({...f,[k]:v}));
+  const [staffPickSearch,setStaffPickSearch]=React.useState('');
+  const filteredStaffPick=React.useMemo(()=>{
+    const q=staffPickSearch.toLowerCase();
+    if(!q)return allStaff.slice(0,30);
+    return allStaff.filter(s=>(s.name||'').toLowerCase().includes(q)||(s.role||'').toLowerCase().includes(q)).slice(0,30);
+  },[allStaff,staffPickSearch]);
+  const selStaffMember=allStaff.find(s=>s.id===staffForm.staffId)||null;
+  const openNewStaffCase=()=>{setStaffForm(blankStaffForm());setEditStaffCase(null);setStaffPickSearch('');setStaffFormOpen(true);};
+  const openEditStaffCase=c=>{setStaffForm({...c,date:c.date||new Date().toISOString().slice(0,10),time:c.time||''});setEditStaffCase(c);setStaffPickSearch('');setStaffFormOpen(true);};
+  const saveStaffCase=()=>{
+    if(!staffForm.staffId&&!staffForm.staffName.trim()){alert('Please select a staff member.');return;}
+    if(!staffForm.complaint.trim()){alert('Please enter a complaint / reason.');return;}
+    const now=Date.now();
+    const member=allStaff.find(s=>s.id===staffForm.staffId)||{};
+    const payload={...staffForm,id:editStaffCase?editStaffCase.id:uid(),createdAt:editStaffCase?editStaffCase.createdAt:now,updatedAt:now,recordedBy:user?.displayName||user?.email||'Nurse',staffName:member.name||staffForm.staffName||staffForm.staffId,staffRole:member.role||''};
+    sv('nurseStaffCases',{...(data.nurseStaffCases||{}),[payload.id]:payload});
+    if(staffForm.severity==='high'||staffForm.severity==='critical'){
+      const notif={id:uid(),type:'nurse_staff_alert',message:`🏥 Staff medical: ${payload.staffName} (${payload.staffRole}) — ${staffForm.complaint}`,createdAt:now,by:user?.displayName||'Nurse',read:false};
+      sv('notifications',{...(data.notifications||{}),[notif.id]:notif});
+    }
+    setStaffFormOpen(false);
+  };
+  const closeStaffCase=c=>sv('nurseStaffCases',{...(data.nurseStaffCases||{}),[c.id]:{...c,status:'closed',closedAt:Date.now()}});
+  const deleteStaffCase=c=>{if(!confirm('Delete this staff case?'))return;const u={...(data.nurseStaffCases||{})};delete u[c.id];sv('nurseStaffCases',u);};
+  const visibleStaffCases=staffCases.filter(c=>{
+    if(sfFilterStatus!=='all'&&c.status!==sfFilterStatus)return false;
+    if(sfSearchQ){const q=sfSearchQ.toLowerCase();if(!((c.staffName||'').toLowerCase().includes(q)||(c.complaint||'').toLowerCase().includes(q)))return false;}
+    return true;
+  });
+  const staffOpenCount=staffCases.filter(c=>c.status==='open').length;
+  // ────────────────────────────────────────────────────────────────────────────
+
   const cardStyle={background:'var(--card)',borderRadius:12,padding:'16px 20px',boxShadow:'0 1px 4px rgba(0,0,0,.08)',marginBottom:12,borderLeft:'4px solid',display:'flex',flexDirection:'column',gap:6};
 
   return(
@@ -7439,9 +7524,9 @@ function NurseModule({data,sv,up,user,houses,lang,L}){
       </div>
 
       {/* Sub-tabs */}
-      <div style={{display:'flex',gap:4,marginBottom:18,borderBottom:'2px solid var(--border)',paddingBottom:0}}>
-        {[['log','📋 Case Log'],['followup','🔄 Follow-Up'],['protocols','🚨 Protocols']].map(([id,lbl])=>(
-          <button key={id} onClick={()=>setSubTab(id)} style={{padding:'8px 18px',border:'none',borderBottom:subTab===id?'2px solid #3b82f6':'2px solid transparent',marginBottom:-2,background:'none',cursor:'pointer',fontWeight:subTab===id?700:400,color:subTab===id?'#3b82f6':'inherit',borderRadius:'6px 6px 0 0',fontSize:14}}>{lbl}</button>
+      <div style={{display:'flex',gap:4,marginBottom:18,borderBottom:'2px solid var(--border)',paddingBottom:0,flexWrap:'wrap'}}>
+        {[['log','📋 Case Log'],['staff','👨‍🏫 Staff Cases'],['followup','🔄 Follow-Up'],['protocols','🚨 Protocols']].map(([id,lbl])=>(
+          <button key={id} onClick={()=>setSubTab(id)} style={{padding:'8px 18px',border:'none',borderBottom:subTab===id?'2px solid #3b82f6':'2px solid transparent',marginBottom:-2,background:'none',cursor:'pointer',fontWeight:subTab===id?700:400,color:subTab===id?'#3b82f6':'inherit',borderRadius:'6px 6px 0 0',fontSize:14}}>{lbl}{id==='staff'&&staffOpenCount>0&&<span style={{marginLeft:5,background:'#ef4444',color:'#fff',borderRadius:10,fontSize:10,padding:'1px 5px'}}>{staffOpenCount}</span>}</button>
         ))}
       </div>
 
@@ -7467,10 +7552,11 @@ function NurseModule({data,sv,up,user,houses,lang,L}){
                   <span style={{background:sevColor[c.severity]+'22',color:sevColor[c.severity],fontSize:11,fontWeight:700,borderRadius:4,padding:'2px 8px'}}>{sevLabel[c.severity]||c.severity}</span>
                   <span style={{background:c.status==='open'?'#fef9c3':'#dcfce7',color:c.status==='open'?'#854d0e':'#166534',fontSize:11,borderRadius:4,padding:'2px 8px'}}>{c.status==='open'?'🟡 Open':'✅ Closed'}</span>
                   {c.referredOut&&<span style={{background:'#ede9fe',color:'#6d28d9',fontSize:11,borderRadius:4,padding:'2px 8px'}}>🏨 Referred</span>}
-                  {c.parentContacted&&<span style={{background:'#fce7f3',color:'#9d174d',fontSize:11,borderRadius:4,padding:'2px 8px'}}>📞 Parent notified</span>}
+                  {c.parentContacted&&<span style={{background:'#fce7f3',color:'#9d174d',fontSize:11,borderRadius:4,padding:'2px 8px'}}>📞 {c.parentContactedWho?({mother:'Mother 👩',father:'Father 👨',guardian:'Guardian'}[c.parentContactedWho]||'Parent'):'Parent'} notified</span>}
                 </div>
                 <div style={{marginTop:6,fontSize:14,fontWeight:600}}>{c.complaint}</div>
                 {c.treatment&&<div style={{fontSize:13,color:'#64748b',marginTop:2}}>💊 Treatment: {c.treatment}</div>}
+                {c.parentContacted&&c.parentContactedPhone&&<div style={{fontSize:13,color:'#0369a1',marginTop:2}}>📱 {c.parentContactedPhone}</div>}
                 {c.parentNote&&<div style={{fontSize:13,color:'#64748b',marginTop:2}}>📞 Parent note: {c.parentNote}</div>}
                 {c.referralNote&&<div style={{fontSize:13,color:'#64748b',marginTop:2}}>🏨 Referral: {c.referralNote}</div>}
               </div>
@@ -7486,6 +7572,108 @@ function NurseModule({data,sv,up,user,houses,lang,L}){
             </div>
           </div>
         ))}
+      </>}
+
+      {/* ── Staff Cases Tab ─────────────────────────────── */}
+      {subTab==='staff'&&<>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:8}}>
+          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+            <input value={sfSearchQ} onChange={e=>setSfSearchQ(e.target.value)} placeholder="🔍 Search staff or complaint…" style={{padding:'7px 12px',border:'1px solid var(--border)',borderRadius:8,fontSize:13,minWidth:200,background:'var(--input)',color:'inherit'}}/>
+            <select value={sfFilterStatus} onChange={e=>setSfFilterStatus(e.target.value)} style={{padding:'7px 10px',border:'1px solid var(--border)',borderRadius:8,fontSize:13,background:'var(--input)',color:'inherit'}}>
+              <option value="all">All</option><option value="open">Open</option><option value="closed">Closed</option>
+            </select>
+          </div>
+          <button onClick={openNewStaffCase} style={{padding:'8px 18px',background:'#0ea5e9',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:14}}>+ Log Staff Case</button>
+        </div>
+        {visibleStaffCases.length===0&&<div style={{textAlign:'center',color:'#94a3b8',padding:40}}>No staff cases recorded yet.</div>}
+        {visibleStaffCases.map(c=>(
+          <div key={c.id} style={{...cardStyle,borderColor:sevColor[c.severity]||'#94a3b8'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:8}}>
+              <div style={{flex:1}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',marginBottom:4}}>
+                  <span style={{fontWeight:700,fontSize:15}}>👤 {c.staffName||'—'}</span>
+                  {c.staffRole&&<span style={{background:'#e0f2fe',color:'#0369a1',fontSize:11,borderRadius:4,padding:'1px 6px'}}>{c.staffRole}</span>}
+                  <span style={{background:sevColor[c.severity]+'22',color:sevColor[c.severity],fontSize:11,fontWeight:700,borderRadius:4,padding:'2px 8px'}}>{sevLabel[c.severity]||c.severity}</span>
+                  <span style={{background:c.status==='open'?'#fef9c3':'#dcfce7',color:c.status==='open'?'#854d0e':'#166534',fontSize:11,borderRadius:4,padding:'2px 8px'}}>{c.status==='open'?'🟡 Open':'✅ Closed'}</span>
+                </div>
+                <div style={{fontSize:14,fontWeight:600}}>{c.complaint}</div>
+                {c.treatment&&<div style={{fontSize:13,color:'#64748b',marginTop:2}}>💊 {c.treatment}</div>}
+                {c.notes&&<div style={{fontSize:13,color:'#64748b',marginTop:2}}>📝 {c.notes}</div>}
+              </div>
+              <div style={{fontSize:11,color:'#94a3b8',textAlign:'right',whiteSpace:'nowrap'}}>
+                <div>{c.date} {c.time}</div>
+                <div style={{marginTop:2}}>{c.recordedBy}</div>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:8,marginTop:4,flexWrap:'wrap'}}>
+              <button onClick={()=>openEditStaffCase(c)} style={{padding:'4px 12px',border:'1px solid #3b82f6',color:'#3b82f6',background:'none',borderRadius:6,cursor:'pointer',fontSize:12}}>✏️ Edit</button>
+              {c.status==='open'&&<button onClick={()=>closeStaffCase(c)} style={{padding:'4px 12px',border:'1px solid #22c55e',color:'#22c55e',background:'none',borderRadius:6,cursor:'pointer',fontSize:12}}>✅ Close</button>}
+              <button onClick={()=>deleteStaffCase(c)} style={{padding:'4px 12px',border:'1px solid #ef4444',color:'#ef4444',background:'none',borderRadius:6,cursor:'pointer',fontSize:12}}>🗑 Delete</button>
+            </div>
+          </div>
+        ))}
+        {/* Staff Case Form Modal */}
+        {staffFormOpen&&(
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.55)',zIndex:9000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+            <div style={{background:'#ffffff',color:'#1e293b',borderRadius:16,width:'100%',maxWidth:520,padding:24,boxShadow:'0 8px 40px rgba(0,0,0,.35)',maxHeight:'90vh',overflowY:'auto'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+                <h2 style={{margin:0,fontSize:20,fontWeight:700}}>👤 {editStaffCase?'Edit':'Log New'} Staff Case</h2>
+                <button onClick={()=>setStaffFormOpen(false)} style={{background:'none',border:'none',fontSize:22,cursor:'pointer',color:'#94a3b8'}}>✕</button>
+              </div>
+              {/* Staff search */}
+              <label style={{fontSize:13,fontWeight:600,display:'block',marginBottom:4}}>Staff / Teacher *</label>
+              <div style={{position:'relative',marginBottom:12}}>
+                <input value={staffPickSearch} onChange={e=>{setStaffPickSearch(e.target.value);if(!e.target.value){sfld('staffId','');sfld('staffName','');}}} placeholder="🔍 Search by name or role…" style={{width:'100%',padding:'8px 12px',border:'1px solid #e2e8f0',borderRadius:8,background:'#f8fafc',color:'#1e293b',fontSize:14}}/>
+                {staffPickSearch&&filteredStaffPick.length>0&&(
+                  <div style={{position:'absolute',top:'100%',left:0,right:0,background:'#fff',border:'1px solid #e2e8f0',borderRadius:'0 0 8px 8px',maxHeight:220,overflowY:'auto',zIndex:9999,boxShadow:'0 4px 16px rgba(0,0,0,.12)'}}>
+                    {filteredStaffPick.map(s=>(
+                      <div key={s.id} onClick={()=>{sfld('staffId',s.id);sfld('staffName',s.name||'');setStaffPickSearch('');}}
+                        style={{padding:'9px 14px',cursor:'pointer',fontSize:13,borderBottom:'1px solid #f1f5f9',display:'flex',justifyContent:'space-between',background:staffForm.staffId===s.id?'#eff6ff':'#fff'}}
+                        onMouseEnter={e=>e.currentTarget.style.background='#f0f9ff'} onMouseLeave={e=>e.currentTarget.style.background=staffForm.staffId===s.id?'#eff6ff':'#fff'}>
+                        <span style={{fontWeight:600}}>{s.name}</span>
+                        <span style={{fontSize:11,color:'#64748b'}}>{s.role||''}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {selStaffMember&&!staffPickSearch&&(
+                  <div style={{marginTop:6,display:'flex',alignItems:'center',gap:8,background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:6,padding:'6px 12px'}}>
+                    <span style={{fontSize:13,fontWeight:600,color:'#1e40af'}}>👤 {selStaffMember.name}</span>
+                    {selStaffMember.role&&<span style={{fontSize:11,background:'#dbeafe',color:'#1d4ed8',borderRadius:4,padding:'1px 6px'}}>{selStaffMember.role}</span>}
+                    <button type="button" onClick={()=>{sfld('staffId','');sfld('staffName','');}} style={{marginLeft:'auto',background:'none',border:'none',cursor:'pointer',color:'#94a3b8',fontSize:14}}>✕</button>
+                  </div>
+                )}
+              </div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
+                <div><label style={{fontSize:13,fontWeight:600,display:'block',marginBottom:4}}>Date</label><input type="date" value={staffForm.date} onChange={e=>sfld('date',e.target.value)} style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,background:'#f8fafc',color:'#1e293b',fontSize:14}}/></div>
+                <div><label style={{fontSize:13,fontWeight:600,display:'block',marginBottom:4}}>Time</label><input type="time" value={staffForm.time} onChange={e=>sfld('time',e.target.value)} style={{width:'100%',padding:'8px 10px',border:'1px solid #e2e8f0',borderRadius:8,background:'#f8fafc',color:'#1e293b',fontSize:14}}/></div>
+              </div>
+              <label style={{fontSize:13,fontWeight:600,display:'block',marginBottom:4}}>Complaint / Reason for Visit *</label>
+              <textarea value={staffForm.complaint} onChange={e=>sfld('complaint',e.target.value)} rows={2} placeholder="Headache, fever, injury, etc." style={{width:'100%',padding:'8px 12px',border:'1px solid #e2e8f0',borderRadius:8,background:'#f8fafc',color:'#1e293b',fontSize:14,marginBottom:12,resize:'vertical'}}/>
+              <label style={{fontSize:13,fontWeight:600,display:'block',marginBottom:4}}>Treatment / Action Taken</label>
+              <textarea value={staffForm.treatment} onChange={e=>sfld('treatment',e.target.value)} rows={2} placeholder="Rest, medication given, sent home…" style={{width:'100%',padding:'8px 12px',border:'1px solid #e2e8f0',borderRadius:8,background:'#f8fafc',color:'#1e293b',fontSize:14,marginBottom:12,resize:'vertical'}}/>
+              <label style={{fontSize:13,fontWeight:600,display:'block',marginBottom:4}}>Severity</label>
+              <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
+                {['low','medium','high','critical'].map(s=>(
+                  <label key={s} style={{display:'flex',alignItems:'center',gap:5,cursor:'pointer',padding:'6px 12px',borderRadius:8,border:`2px solid ${staffForm.severity===s?sevColor[s]:'#e2e8f0'}`,background:staffForm.severity===s?sevColor[s]+'18':'#f8fafc',fontSize:13,fontWeight:staffForm.severity===s?700:400}}>
+                    <input type="radio" name="sseverity" value={s} checked={staffForm.severity===s} onChange={()=>sfld('severity',s)} style={{display:'none'}}/>
+                    <span style={{color:sevColor[s],fontWeight:700}}>{sevLabel[s]}</span>
+                  </label>
+                ))}
+              </div>
+              <label style={{fontSize:13,fontWeight:600,display:'block',marginBottom:4}}>Additional Notes</label>
+              <textarea value={staffForm.notes} onChange={e=>sfld('notes',e.target.value)} rows={2} placeholder="Any additional notes…" style={{width:'100%',padding:'8px 12px',border:'1px solid #e2e8f0',borderRadius:8,background:'#f8fafc',color:'#1e293b',fontSize:14,marginBottom:12,resize:'vertical'}}/>
+              <label style={{fontSize:13,fontWeight:600,display:'block',marginBottom:4}}>Status</label>
+              <select value={staffForm.status} onChange={e=>sfld('status',e.target.value)} style={{width:'100%',padding:'8px 12px',border:'1px solid #e2e8f0',borderRadius:8,background:'#f8fafc',color:'#1e293b',fontSize:14,marginBottom:18}}>
+                <option value="open">🟡 Open</option><option value="closed">✅ Closed</option>
+              </select>
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                <button onClick={()=>setStaffFormOpen(false)} style={{padding:'9px 20px',border:'1px solid #e2e8f0',background:'#f1f5f9',color:'#1e293b',borderRadius:8,cursor:'pointer',fontSize:14}}>Cancel</button>
+                <button onClick={saveStaffCase} style={{padding:'9px 20px',background:'#0ea5e9',color:'#fff',border:'none',borderRadius:8,cursor:'pointer',fontWeight:600,fontSize:14}}>Save Case</button>
+              </div>
+            </div>
+          </div>
+        )}
       </>}
 
       {/* ── Follow-Up Tab ────────────────────────────────── */}
@@ -7622,10 +7810,62 @@ function NurseModule({data,sv,up,user,houses,lang,L}){
               ))}
             </div>
             {(form.severity==='high'||form.severity==='critical')&&<div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'8px 12px',fontSize:13,color:'#991b1b',marginBottom:12}}>🔴 Leadership will be automatically notified for this case.</div>}
-            <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',marginBottom:10,fontSize:14,color:'#1e293b'}}>
-              <input type="checkbox" checked={form.parentContacted} onChange={e=>fld('parentContacted',e.target.checked)}/> Parent contacted
+            {/* ── Parent Contacted ── */}
+            <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',marginBottom:8,fontSize:14,color:'#1e293b',fontWeight:600}}>
+              <input type="checkbox" checked={form.parentContacted} onChange={e=>{fld('parentContacted',e.target.checked);if(!e.target.checked){fld('parentContactedWho','');fld('parentContactedPhone','');}}}/>
+              {isAr?'تم التواصل مع ولي الأمر':'Parent contacted'}
             </label>
-            {form.parentContacted&&<textarea value={form.parentNote} onChange={e=>fld('parentNote',e.target.value)} rows={2} placeholder="Parent communication details / outcome…" style={{width:'100%',padding:'8px 12px',border:'1px solid #e2e8f0',borderRadius:8,background:'#f8fafc',color:'#1e293b',fontSize:14,marginBottom:12,resize:'vertical'}}/>}
+            {form.parentContacted&&(()=>{
+              const stu=students.find(s=>s.id===form.studentId);
+              const dirPhone=stu?.parentPhone||'';
+              const motherPhone=stu?.motherPhone||dirPhone;
+              const fatherPhone=stu?.fatherPhone||dirPhone;
+              const whoOpts=[
+                {k:'mother',label:isAr?'الأم':'Mother',phone:motherPhone},
+                {k:'father',label:isAr?'الأب':'Father',phone:fatherPhone},
+                {k:'guardian',label:isAr?'ولي الأمر':'Guardian',phone:dirPhone},
+              ];
+              return(<div style={{background:'#fdf4ff',border:'1px solid #e9d5ff',borderRadius:10,padding:'12px 14px',marginBottom:12}}>
+                <div style={{fontSize:13,fontWeight:700,color:'#6b21a8',marginBottom:8}}>{isAr?'من تم التواصل معه؟':'Who was contacted?'}</div>
+                <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:10}}>
+                  {whoOpts.map(opt=>(
+                    <button key={opt.k} type="button"
+                      onClick={()=>{fld('parentContactedWho',opt.k);fld('parentContactedPhone',opt.phone||'');}}
+                      style={{padding:'7px 16px',borderRadius:8,border:`2px solid ${form.parentContactedWho===opt.k?'#7c3aed':'#e2e8f0'}`,background:form.parentContactedWho===opt.k?'#7c3aed':'#fff',color:form.parentContactedWho===opt.k?'#fff':'#374151',fontSize:13,fontWeight:600,cursor:'pointer'}}>
+                      {opt.k==='mother'?'👩 ':'👨 '}{opt.label}
+                    </button>
+                  ))}
+                </div>
+                {/* Phone display from directory */}
+                {form.parentContactedWho&&(()=>{
+                  const chosen=whoOpts.find(o=>o.k===form.parentContactedWho);
+                  const ph=chosen?.phone||'';
+                  const sanitized=(ph||'').replace(/\D/g,'').replace(/^00/,'+').replace(/^966/,'+966').replace(/^05/,'+9665').replace(/^5/,'+9665');
+                  const waLink=`https://wa.me/${sanitized.replace(/\D/g,'')}`;
+                  return(<div style={{background:'#fff',borderRadius:8,border:'1px solid #ddd6fe',padding:'8px 12px',marginBottom:10,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+                    <span style={{fontSize:12,color:'#6b7280',fontWeight:600}}>{isAr?'رقم من الدليل:':'Directory number:'}</span>
+                    {ph
+                      ?<><span style={{fontFamily:'monospace',fontSize:14,color:'#1e40af',fontWeight:700}}>{ph}</span>
+                        <a href={waLink} target="_blank" rel="noopener" style={{padding:'4px 12px',background:'#25D366',color:'#fff',borderRadius:6,fontSize:12,fontWeight:700,textDecoration:'none',display:'inline-flex',alignItems:'center',gap:4}}>
+                          💬 WhatsApp
+                        </a>
+                        <a href={`tel:${ph}`} style={{padding:'4px 10px',background:'#3b82f6',color:'#fff',borderRadius:6,fontSize:12,fontWeight:700,textDecoration:'none'}}>
+                          📞 {isAr?'اتصال':'Call'}
+                        </a>
+                      </>
+                      :<span style={{fontSize:12,color:'#ef4444',fontStyle:'italic'}}>{isAr?'لا يوجد رقم في الدليل — أضفه من دليل الطلاب':'No number in directory — add it from Student Directory'}</span>
+                    }
+                  </div>);
+                })()}
+                {/* Editable phone override */}
+                <div style={{marginBottom:8}}>
+                  <label style={{fontSize:12,fontWeight:600,color:'#6b7280',display:'block',marginBottom:3}}>{isAr?'رقم التواصل الفعلي (للتعديل إن لزم):':'Actual number used (edit if needed):'}</label>
+                  <input value={form.parentContactedPhone} onChange={e=>fld('parentContactedPhone',e.target.value)} placeholder={isAr?'رقم ولي الأمر...':'Parent phone…'} dir="ltr" style={{width:'100%',padding:'7px 10px',border:'1px solid #ddd6fe',borderRadius:7,fontSize:14,background:'#faf5ff'}}/>
+                </div>
+                <label style={{fontSize:13,fontWeight:600,color:'#6b7280',display:'block',marginBottom:4}}>{isAr?'ملاحظات / نتيجة التواصل:':'Communication notes / outcome:'}</label>
+                <textarea value={form.parentNote} onChange={e=>fld('parentNote',e.target.value)} rows={2} placeholder={isAr?'تفاصيل التواصل، قرار ولي الأمر، إلخ...':'Communication details, parent decision, etc…'} style={{width:'100%',padding:'8px 12px',border:'1px solid #ddd6fe',borderRadius:8,background:'#faf5ff',color:'#1e293b',fontSize:14,resize:'vertical'}}/>
+              </div>);
+            })()}
             <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',marginBottom:10,fontSize:14,color:'#1e293b'}}>
               <input type="checkbox" checked={form.referredOut} onChange={e=>fld('referredOut',e.target.checked)}/> Referred to hospital / external clinic
             </label>
@@ -8381,13 +8621,13 @@ function PermissionsPanel({data,user,isAr,ROLES}){
     if(id==='staff'&&val===false&&roleSel===user.role){
       if(!window.confirm(isAr?'أنت على وشك إزالة وصول دورك الحالي إلى "الموظفون" (حيث تُدار الصلاحيات نفسها). متابعة؟':'You are about to remove your own role\'s access to Staff & Users — where permissions themselves are managed. Continue?'))return;
     }
-    db.ref(`/btpro/rolePermissions/${roleSel}/tabs/${id}`).set(val);
+    showSave(db.ref(`/btpro/rolePermissions/${roleSel}/tabs/${id}`).set(val));
   };
-  const setCap=(cap,val)=>{if(!isAdminRole)db.ref(`/btpro/rolePermissions/${roleSel}/${cap}`).set(val);};
+  const setCap=(cap,val)=>{if(!isAdminRole)showSave(db.ref(`/btpro/rolePermissions/${roleSel}/${cap}`).set(val));};
   const setAll=val=>{
     if(isAdminRole)return;
     const upd={};TAB_DEFS.forEach(d=>{upd[`/btpro/rolePermissions/${roleSel}/tabs/${d.id}`]=val;});
-    db.ref('/').update(upd);
+    showSave(db.ref('/').update(upd));
   };
 
   // ── By-name overrides: every role EXCEPT Administrator (always full access, can't be restricted) ──
@@ -8398,6 +8638,12 @@ function PermissionsPanel({data,user,isAr,ROLES}){
     if(namedStaff.length&&!namedStaff.find(s=>s.id===staffSel))setStaffSel(namedStaff[0].id);
   },[data.staff,data.teachers]);
   const [showRoleLabels,setShowRoleLabels]=React.useState(false);
+  const [saveStatus,setSaveStatus]=React.useState(null);
+  const [saveErr,setSaveErr]=React.useState('');
+  const showSave=(promise)=>{
+    setSaveStatus('saving');setSaveErr('');
+    promise.then(()=>{setSaveStatus('saved');setTimeout(()=>setSaveStatus(null),2000);}).catch(e=>{setSaveErr(e.message||String(e));setSaveStatus('error');});
+  };
   const selStaff=namedStaff.find(s=>s.id===staffSel)||null;
   const staffRole=selStaff?.role;
   const staffOverride=selStaff?(data.staffPermissions||{})[selStaff.id]||null:null;
@@ -8416,23 +8662,23 @@ function PermissionsPanel({data,user,isAr,ROLES}){
       if(!window.confirm(isAr?'أنت على وشك إزالة وصولك الشخصي إلى "الموظفون". متابعة؟':'You are about to remove your own personal access to Staff & Users. Continue?'))return;
     }
     const base=staffOverride||seedStaffSnapshot();
-    db.ref(`/btpro/staffPermissions/${selStaff.id}`).set({...base,tabs:{...(base.tabs||{}),[id]:val}});
+    showSave(db.ref(`/btpro/staffPermissions/${selStaff.id}`).set({...base,tabs:{...(base.tabs||{}),[id]:val}}));
   };
   const setStaffCap=(cap,val)=>{
     if(!selStaff)return;
     const base=staffOverride||seedStaffSnapshot();
-    db.ref(`/btpro/staffPermissions/${selStaff.id}`).set({...base,[cap]:val});
+    showSave(db.ref(`/btpro/staffPermissions/${selStaff.id}`).set({...base,[cap]:val}));
   };
   const setStaffAll=val=>{
     if(!selStaff)return;
     const base=staffOverride||seedStaffSnapshot();
     const tabs={};TAB_DEFS.forEach(d=>{tabs[d.id]=val;});
-    db.ref(`/btpro/staffPermissions/${selStaff.id}`).set({...base,tabs});
+    showSave(db.ref(`/btpro/staffPermissions/${selStaff.id}`).set({...base,tabs}));
   };
   const resetStaffToRoleDefault=()=>{
     if(!selStaff)return;
     if(!window.confirm(isAr?'إعادة هذا الشخص لاتباع صلاحيات دوره الافتراضية؟ سيُحذف أي تخصيص خاص به.':'Reset this person to their role\'s default permissions? Any personal override will be removed.'))return;
-    db.ref(`/btpro/staffPermissions/${selStaff.id}`).set(null);
+    showSave(db.ref(`/btpro/staffPermissions/${selStaff.id}`).set(null));
   };
 
   const SEC_ORDER=['main','support','tools','resources','community','settings'];
@@ -8445,6 +8691,9 @@ function PermissionsPanel({data,user,isAr,ROLES}){
           <button className={`btn bxs ${mode==='role'?'btnp':'btng'}`} onClick={()=>setMode('role')}>👥 {isAr?'حسب الدور':'By Role'}</button>
           <button className={`btn bxs ${mode==='staff'?'btnp':'btng'}`} onClick={()=>setMode('staff')}>🙋 {isAr?'حسب الاسم':'By Staff Member'}</button>
           <button className="btn bxs btng" style={{marginLeft:'auto'}} onClick={()=>setShowRoleLabels(true)}>✏️ {isAr?'تسميات الأدوار':'Role Labels'}</button>
+          {saveStatus==='saving'&&<span style={{fontSize:12,color:'#64748b',padding:'4px 10px',background:'#f1f5f9',borderRadius:6}}>⏳ {isAr?'جارٍ الحفظ...':'Saving…'}</span>}
+          {saveStatus==='saved'&&<span style={{fontSize:12,color:'#16a34a',padding:'4px 10px',background:'#f0fdf4',borderRadius:6,border:'1px solid #bbf7d0'}}>✓ {isAr?'تم الحفظ':'Saved'}</span>}
+          {saveStatus==='error'&&<span style={{fontSize:12,color:'#dc2626',padding:'4px 10px',background:'#fef2f2',borderRadius:6,border:'1px solid #fecaca'}} title={saveErr}>✕ {isAr?'فشل الحفظ — تحقق من صلاحيات Firebase':'Save failed — check Firebase rules'} {saveErr&&`(${saveErr})`}</span>}
         </div>
         {mode==='role'?(<>
           <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
@@ -9091,17 +9340,57 @@ function BookCheck({data,sv,up,user,houses,clsCols,lang,L}){
 // ══════════════════ ACADEMIC REPORTS ══════════════════
 function AcademicReports({data,sv,up,user,lang,L}){
   const isAr=lang==='ar';
+
+  /* ── Scope detection ───────────────────────────────────────────────────────
+     isAdmin  → Principal / HOS / Administrator / Supervisor / Counselor / HOD
+     hodScope → "Arabic" when role = "HOD Arabic"
+     teacherProfile → matched record from data.teachers (has .subjects & .grades)
+     mySubjects / myGrades → what this teacher actually teaches
+  ─────────────────────────────────────────────────────────────────────────── */
+  const isAdmin=user.role==='Administrator'||user.role==='Head of Section'||user.role==='admin'||user.role==='head'||user.role==='Principal'||user.role==='Principal Deputy'||user.role==='Supervisor 1'||user.role==='Supervisor 2'||user.role==='Supervisor 3'||user.role==='Student Counselor'||/^HOD\s+/i.test(user.role);
+  const hodScope=/^HOD\s+/i.test(user.role)?user.role.replace(/^HOD\s+/i,'').trim():null;
+  const isTeacherOnly=!isAdmin; // regular teacher — subject+grade restricted
+
+  // Locate this user's teacher record to get their subjects & grades
+  const allTeachers=Object.values(data.teachers||{});
+  const teacherProfile=React.useMemo(()=>{
+    const uid=user.id||'';const em=(user.email||user.authEmail||'').toLowerCase();
+    return allTeachers.find(t=>t.id===uid||t.id===em||(t.authEmail||t.email||'').toLowerCase()===em||t.name===user.name)||null;
+  },[allTeachers,user]);
+
+  const mySubjects=React.useMemo(()=>{
+    if(hodScope)return[hodScope]; // HOD filtered to their subject
+    if(!isTeacherOnly)return[]; // admin sees all
+    const raw=teacherProfile?.subjects||(teacherProfile?.subject?[teacherProfile.subject]:[]);
+    return raw.map(s=>String(s).trim()).filter(Boolean);
+  },[teacherProfile,isTeacherOnly,hodScope]);
+
+  const myGrades=React.useMemo(()=>{
+    if(!isTeacherOnly||hodScope)return[]; // admin/HOD sees all grades
+    const raw=teacherProfile?.grades||(teacherProfile?.grade?[teacherProfile.grade]:[]);
+    return raw.map(g=>Number(g)).filter(Boolean);
+  },[teacherProfile,isTeacherOnly,hodScope]);
+
   const students=Object.values(data.students||{});
+  // Students scoped to this teacher's grades (for the add-report search)
+  const myStudents=React.useMemo(()=>{
+    if(!isTeacherOnly||myGrades.length===0)return students;
+    return students.filter(s=>myGrades.includes(Number(s.grade)));
+  },[students,isTeacherOnly,myGrades]);
+
   const reports=Object.values(data.academicReports||{});
   const [showAdd,setShowAdd]=React.useState(false);
   const [stuSearch,setStuSearch]=React.useState('');
   const [selStu,setSelStu]=React.useState('');
   const [issues,setIssues]=React.useState([]);
   const [extraNote,setExtraNote]=React.useState('');
-  const [subject,setSubject]=React.useState('');
+  // Pre-fill subject for teachers who only teach one subject
+  const [subject,setSubject]=React.useState(()=>mySubjects.length===1?mySubjects[0]:'');
   const [period,setPeriod]=React.useState('');
   const [repDate,setRepDate]=React.useState(new Date().toISOString().split('T')[0]);
   const [fSearch,setFSearch]=React.useState('');
+  const [fGrade,setFGrade]=React.useState('');   // grade filter for the report list
+  const [fSubject,setFSubject]=React.useState(''); // subject filter for the report list
   const [editId,setEditId]=React.useState(null);
   const [waR,setWaR]=React.useState(null); // academic report currently being composed for WhatsApp send
 
@@ -9119,7 +9408,7 @@ function AcademicReports({data,sv,up,user,lang,L}){
   const SUBJECTS=isAr?SUBJECTS_AR:SUBJECTS_EN;
   const PERIODS=['P1','P2','P3','P4','P5','P6','P7','P8'];
 
-  const closeModal=()=>{setShowAdd(false);setEditId(null);setSelStu('');setIssues([]);setExtraNote('');setStuSearch('');setSubject('');setPeriod('');setRepDate(new Date().toISOString().split('T')[0]);};
+  const closeModal=()=>{setShowAdd(false);setEditId(null);setSelStu('');setIssues([]);setExtraNote('');setStuSearch('');setSubject(mySubjects.length===1?mySubjects[0]:'');setPeriod('');setRepDate(new Date().toISOString().split('T')[0]);};
   const saveReport=()=>{
     if(!selStu){alert(isAr?'اختر طالباً':'Select a student');return;}
     if(issues.length===0&&!extraNote.trim()){alert(isAr?'اختر مشكلة أو أدخل ملاحظة':'Select at least one issue or add a note');return;}
@@ -9145,14 +9434,70 @@ function AcademicReports({data,sv,up,user,lang,L}){
 
   const delRep=id=>{if(!window.confirm(isAr?'حذف؟':'Delete?'))return;db.ref(`/btpro/academicReports/${id}`).remove();if(editId===id)closeModal();};
 
-  const filteredRep=reports.filter(r=>!fSearch||r.studentName?.toLowerCase().includes(fSearch.toLowerCase())).sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.timestamp-a.timestamp);
+  const filteredRep=React.useMemo(()=>reports.filter(r=>{
+    // ── Scope gate ──────────────────────────────────────────────────────────
+    if(isTeacherOnly&&!hodScope){
+      // Regular teacher: must match at least one of their grades AND one of their subjects
+      if(myGrades.length>0&&!myGrades.includes(Number(r.grade)))return false;
+      if(mySubjects.length>0&&r.subject&&!mySubjects.some(s=>s.toLowerCase()===(r.subject||'').toLowerCase()))return false;
+    }
+    if(hodScope){
+      // HOD: sees all grades but only their subject
+      if(r.subject&&!mySubjects.some(s=>s.toLowerCase()===(r.subject||'').toLowerCase()))return false;
+    }
+    // ── User-driven filters ─────────────────────────────────────────────────
+    if(fSearch&&!r.studentName?.toLowerCase().includes(fSearch.toLowerCase()))return false;
+    if(fGrade&&String(r.grade)!==String(fGrade))return false;
+    if(fSubject&&!(r.subject||'').toLowerCase().includes(fSubject.toLowerCase()))return false;
+    return true;
+  }).sort((a,b)=>(b.date||'').localeCompare(a.date||'')||b.timestamp-a.timestamp),[reports,isTeacherOnly,hodScope,myGrades,mySubjects,fSearch,fGrade,fSubject]);
+
+  // Grades visible in the report list (for the grade-filter chips)
+  const visibleGrades=React.useMemo(()=>{
+    const gs=new Set(filteredRep.map(r=>r.grade).filter(Boolean));
+    return [...gs].sort((a,b)=>a-b);
+  },[filteredRep]);
 
   return(
     <div>
-      <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
+      {/* ── Scope banner for teachers ───────────────────────────────────── */}
+      {isTeacherOnly&&(myGrades.length>0||mySubjects.length>0)&&(
+        <div style={{background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:10,padding:'10px 14px',marginBottom:12,display:'flex',flexWrap:'wrap',gap:8,alignItems:'center'}}>
+          <span style={{fontSize:13,fontWeight:600,color:'#1d4ed8'}}>📋 {isAr?'نطاق عرضك:':'Your scope:'}</span>
+          {myGrades.length>0&&myGrades.map(g=><span key={g} className="badge" style={{background:'#dbeafe',color:'#1e40af',fontSize:12}}>G{g}</span>)}
+          {mySubjects.length>0&&mySubjects.map(s=><span key={s} className="badge" style={{background:'#e0f2fe',color:'#0369a1',fontSize:12}}>{s}</span>)}
+          <span style={{fontSize:11,color:'#64748b',marginLeft:4}}>{isAr?'— ترى فقط التقارير المرتبطة بفصولك ومادتك':'— you only see reports linked to your classes & subject'}</span>
+        </div>
+      )}
+      {hodScope&&(
+        <div style={{background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:10,padding:'10px 14px',marginBottom:12,display:'flex',gap:8,alignItems:'center'}}>
+          <span style={{fontSize:13,fontWeight:600,color:'#15803d'}}>📋 HOD scope: <strong>{hodScope}</strong></span>
+          <span style={{fontSize:11,color:'#64748b'}}>{isAr?'— تقارير مادتك فقط عبر جميع الصفوف':'— your subject reports across all grades'}</span>
+        </div>
+      )}
+
+      <div style={{display:'flex',gap:10,marginBottom:10,flexWrap:'wrap'}}>
         <div style={{flex:1,minWidth:180}} className="sb">
           <input placeholder={isAr?'بحث عن طالب...':'Search student...'} value={fSearch} onChange={e=>setFSearch(e.target.value)}/>
         </div>
+        {/* Grade filter chips — admins only (teachers already scoped) */}
+        {!isTeacherOnly&&visibleGrades.length>1&&(
+          <div style={{display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}>
+            <span style={{fontSize:12,color:'#64748b'}}>{isAr?'الصف:':'Grade:'}</span>
+            {['', ...visibleGrades].map(g=>(
+              <button key={String(g)} onClick={()=>setFGrade(String(g))}
+                className="btn bxs" style={{padding:'3px 9px',fontSize:11,background:fGrade===String(g)?'#1d4ed8':'#f1f5f9',color:fGrade===String(g)?'#fff':'#475569',borderRadius:20}}>
+                {g===''?(isAr?'الكل':'All'):`G${g}`}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Subject filter — admins & HODs */}
+        {!isTeacherOnly&&(
+          <div style={{flex:'0 0 auto'}} className="sb" style={{minWidth:130}}>
+            <input placeholder={isAr?'فلتر المادة...':'Filter subject...'} value={fSubject} onChange={e=>setFSubject(e.target.value)} style={{fontSize:12}}/>
+          </div>
+        )}
         <button className="btn btnp noprint" onClick={()=>setShowAdd(true)}>{isAr?'+ إضافة تقرير':'+ Add Academic Report'}</button>
         <ExportBtn user={user} data={data} isAr={isAr} className="btn btng noprint" onClick={()=>{
           const rows=filteredRep.map(r=>({[isAr?'التاريخ':'Date']:r.date?fmtD(new Date(r.date).getTime()):fmtD(r.timestamp),[isAr?'الطالب':'Student']:r.studentName,[isAr?'الصف':'Grade']:r.grade,[isAr?'المادة':'Subject']:r.subject||'',[isAr?'الحصة':'Period']:r.period||'',[isAr?'المشكلات':'Issues']:(r.issues||[]).join(', '),[isAr?'ملاحظة':'Note']:r.note||'',[isAr?'سجّله':'Logged By']:r.loggedBy||''}));
@@ -9209,12 +9554,30 @@ function AcademicReports({data,sv,up,user,lang,L}){
         <div className="mov"><div className="modal mlg">
           <div className="mhd"><h3>{editId?(isAr?'تعديل تقرير أكاديمي':'Edit Academic Report'):(isAr?'إضافة تقرير أكاديمي':'Add Academic Report')}</h3><button className="btn btng bxs" onClick={closeModal}>✕</button></div>
           <div className="mbd">
+            {/* Grade scope hint for teachers */}
+            {isTeacherOnly&&myGrades.length>0&&(
+              <div style={{background:'#eff6ff',borderRadius:8,padding:'7px 12px',marginBottom:10,fontSize:12,color:'#1d4ed8'}}>
+                🎓 {isAr?'الطلاب المعروضون من صفوفك فقط:':'Showing students from your classes only:'} {myGrades.map(g=>`G${g}`).join(', ')}
+              </div>
+            )}
             <div style={{marginBottom:12}}>
               <label>{isAr?'بحث عن الطالب *':'Search Student *'}</label>
-              <StuSearch students={students} value={stuSearch} lang={lang} onSelect={s=>{setSelStu(s?s.id:'');setStuSearch(s?s.name:'');}}/>
+              {/* myStudents = grade-scoped for teachers, full list for admins */}
+              <StuSearch students={myStudents} value={stuSearch} lang={lang} onSelect={s=>{setSelStu(s?s.id:'');setStuSearch(s?s.name:'');}}/>
             </div>
             <div className="fr fr3" style={{marginBottom:2}}>
-              <div><label>{isAr?'المادة':'Subject'}</label><select value={subject} onChange={e=>setSubject(e.target.value)}><option value="">{isAr?'اختر...':'Select…'}</option>{SUBJECTS.map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+              <div>
+                <label>{isAr?'المادة':'Subject'}{isTeacherOnly&&mySubjects.length===1&&<span style={{marginLeft:6,fontSize:11,color:'#64748b',fontWeight:400}}>(locked to your subject)</span>}</label>
+                {/* If teacher has exactly one subject, show a locked read-only field */}
+                {isTeacherOnly&&mySubjects.length===1
+                  ?<input value={mySubjects[0]} readOnly style={{background:'#f1f5f9',cursor:'not-allowed',color:'#475569'}}/>
+                  :<select value={subject} onChange={e=>setSubject(e.target.value)}>
+                    <option value="">{isAr?'اختر...':'Select…'}</option>
+                    {/* Teachers with multiple subjects: show only their subjects */}
+                    {(isTeacherOnly&&mySubjects.length>1?mySubjects:SUBJECTS).map(s=><option key={s} value={s}>{s}</option>)}
+                   </select>
+                }
+              </div>
               <div><label>{isAr?'الحصة':'Period'}</label><select value={period} onChange={e=>setPeriod(e.target.value)}><option value="">{isAr?'اختر...':'Select…'}</option>{PERIODS.map(p=><option key={p} value={p}>{p}</option>)}</select></div>
               <div><label>{isAr?'التاريخ':'Date'}</label><input type="date" value={repDate} onChange={e=>setRepDate(e.target.value)}/></div>
             </div>
