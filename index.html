@@ -156,12 +156,7 @@ const firebaseConfig={apiKey:"AIzaSyBX6GaJoG0AjSWjZtwaytSzcn6If5-TsBI",authDomai
 firebase.initializeApp(firebaseConfig);
 // ── Firebase App Check (reCAPTCHA v3) ──
 // Protects all Firebase endpoints — only requests from bharb7.github.io are accepted.
-// Replace SITE_KEY_HERE with your reCAPTCHA v3 Site Key from g.co/recaptcha/admin
-const _appCheck = firebase.appCheck();
-_appCheck.activate(
-  new firebase.appCheck.ReCaptchaV3Provider('6LeDl5ktAAAAAL75S8Ye0mQVW8hL_iQ6xP9WthOR'),
-  true // auto-refresh token silently in background
-);
+firebase.appCheck().activate('6LeDl5ktAAAAAL75S8Ye0mQVW8hL_iQ6xP9WthOR', true);
 const db=firebase.database();
 const auth=firebase.auth();
 // Secondary Firebase app — used to create new Auth accounts without logging out the admin
