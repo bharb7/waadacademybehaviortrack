@@ -2764,6 +2764,163 @@ function PublicStudentVoiceForm({dbSt}){
   );
 }
 
+// ══════════════════ MFA ENROLLMENT MODAL ══════════════════
+function MFAModal({onClose}){
+  const [step,setStep]=React.useState(1); // 1=phone entry, 2=code entry, 3=done
+  const [phone,setPhone]=React.useState('+966');
+  const [code,setCode]=React.useState('');
+  const [verificationId,setVerificationId]=React.useState('');
+  const [busy,setBusy]=React.useState(false);
+  const [err,setErr]=React.useState('');
+  const recapRef=React.useRef(null);
+  const verifierRef=React.useRef(null);
+
+  // Check if already enrolled
+  const enrolled=React.useMemo(()=>{
+    const u=firebase.auth().currentUser;
+    return u&&u.multiFactor&&u.multiFactor.enrolledFactors&&u.multiFactor.enrolledFactors.length>0;
+  },[]);
+
+  React.useEffect(()=>{
+    // Create invisible reCAPTCHA for MFA
+    if(!verifierRef.current&&recapRef.current){
+      try{
+        verifierRef.current=new firebase.auth.RecaptchaVerifier(recapRef.current,{size:'invisible'});
+      }catch(e){console.warn('RecaptchaVerifier init:',e);}
+    }
+    return()=>{
+      if(verifierRef.current){try{verifierRef.current.clear();}catch(e){}}
+      verifierRef.current=null;
+    };
+  },[]);
+
+  const sendCode=async()=>{
+    setErr('');
+    if(!phone||phone.length<8){setErr('Please enter a valid phone number including country code (e.g. +966 5X XXX XXXX)');return;}
+    setBusy(true);
+    try{
+      const user=firebase.auth().currentUser;
+      if(!user){setErr('Not signed in. Please reload and try again.');setBusy(false);return;}
+      const session=await user.multiFactor.getSession();
+      const provider=new firebase.auth.PhoneAuthProvider();
+      const vId=await provider.verifyPhoneNumber({phoneNumber:phone,session},verifierRef.current);
+      setVerificationId(vId);
+      setStep(2);
+    }catch(e){
+      console.error('MFA send code:',e);
+      if(e.code==='auth/requires-recent-login'){
+        setErr('For security, please sign out and sign back in before enrolling MFA, then try again.');
+      }else if(e.code==='auth/invalid-phone-number'){
+        setErr('Invalid phone number. Use international format: +966 5X XXX XXXX');
+      }else if(e.code==='auth/user-not-found'){
+        setErr('User not found. Please reload the page.');
+      }else{
+        setErr(e.message||'Failed to send SMS. Please check the phone number and try again.');
+      }
+    }
+    setBusy(false);
+  };
+
+  const verifyCode=async()=>{
+    setErr('');
+    if(!code||code.length<6){setErr('Please enter the 6-digit code from your SMS.');return;}
+    setBusy(true);
+    try{
+      const cred=firebase.auth.PhoneAuthProvider.credential(verificationId,code);
+      const multiFactorAssertion=firebase.auth.PhoneMultiFactorGenerator.assertion(cred);
+      await firebase.auth().currentUser.multiFactor.enroll(multiFactorAssertion,'My Phone');
+      setStep(3);
+    }catch(e){
+      console.error('MFA verify:',e);
+      if(e.code==='auth/invalid-verification-code'){
+        setErr('Incorrect code. Please check the SMS and try again.');
+      }else if(e.code==='auth/code-expired'){
+        setErr('Code expired. Please click "Resend" to get a new one.');
+      }else{
+        setErr(e.message||'Verification failed. Please try again.');
+      }
+    }
+    setBusy(false);
+  };
+
+  const unenroll=async()=>{
+    if(!window.confirm('Are you sure you want to remove SMS two-factor authentication from your account?'))return;
+    setBusy(true);
+    setErr('');
+    try{
+      const user=firebase.auth().currentUser;
+      const factors=user.multiFactor.enrolledFactors;
+      if(factors.length>0){
+        await user.multiFactor.unenroll(factors[0]);
+        alert('MFA removed. Your account now uses password only.');
+        onClose();
+      }
+    }catch(e){
+      if(e.code==='auth/requires-recent-login'){
+        setErr('For security, please sign out and sign back in before removing MFA.');
+      }else{
+        setErr(e.message||'Failed to remove MFA.');
+      }
+    }
+    setBusy(false);
+  };
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div style={{background:'#fff',borderRadius:14,padding:'28px 32px',maxWidth:420,width:'90%',position:'relative',boxShadow:'0 8px 32px rgba(0,0,0,0.18)'}}>
+        <button onClick={onClose} style={{position:'absolute',top:14,right:16,background:'none',border:'none',fontSize:20,cursor:'pointer',color:'#64748b'}}>✕</button>
+        <div style={{fontSize:22,marginBottom:6}}>🔐</div>
+        <h2 style={{fontSize:17,fontWeight:700,marginBottom:4}}>Two-Factor Authentication (SMS)</h2>
+
+        {enrolled&&step===1?(
+          <>
+            <div style={{background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:8,padding:'12px 14px',marginBottom:16,color:'#166534',fontSize:13}}>
+              ✅ Your account already has SMS MFA enabled. Each login will require a verification code sent to your phone.
+            </div>
+            <p style={{fontSize:13,color:'#64748b',marginBottom:16}}>To remove MFA from your account, click the button below. You will need to have signed in recently.</p>
+            {err&&<div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'10px 12px',marginBottom:12,color:'#991b1b',fontSize:12}}>{err}</div>}
+            <div style={{display:'flex',gap:10}}>
+              <button className="btn btnd" onClick={unenroll} disabled={busy} style={{flex:1}}>{busy?'Please wait…':'Remove MFA'}</button>
+              <button className="btn btnp" onClick={onClose} style={{flex:1}}>Close</button>
+            </div>
+          </>
+        ):step===1?(
+          <>
+            <p style={{fontSize:13,color:'#64748b',marginBottom:18}}>Add an extra layer of security. After enabling, each login will require your password <strong>and</strong> a 6-digit code sent to your phone.</p>
+            <label>Phone Number (with country code)</label>
+            <input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+966 5X XXX XXXX" style={{marginBottom:8,fontSize:15,letterSpacing:1}}/>
+            <div style={{fontSize:11,color:'#94a3b8',marginBottom:16}}>Saudi Arabia: +966 5X XXX XXXX &nbsp;|&nbsp; UK: +44 7X XXX XXXX</div>
+            {err&&<div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'10px 12px',marginBottom:12,color:'#991b1b',fontSize:12}}>{err}</div>}
+            <div ref={recapRef} style={{marginBottom:8}}/>
+            <button className="btn btnp" onClick={sendCode} disabled={busy} style={{width:'100%',justifyContent:'center',marginBottom:8}}>{busy?'Sending SMS…':'Send Verification Code'}</button>
+            <button className="btn" onClick={onClose} style={{width:'100%',justifyContent:'center',background:'#f1f5f9',color:'#475569'}}>Cancel</button>
+          </>
+        ):step===2?(
+          <>
+            <div style={{background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,padding:'12px 14px',marginBottom:16,fontSize:13,color:'#1e40af'}}>
+              📱 A 6-digit code was sent to <strong>{phone}</strong>. Check your SMS messages.
+            </div>
+            <label>Enter the 6-digit code</label>
+            <input value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,'').slice(0,6))} placeholder="123456" maxLength={6} style={{marginBottom:16,fontSize:20,letterSpacing:6,textAlign:'center'}}/>
+            {err&&<div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:8,padding:'10px 12px',marginBottom:12,color:'#991b1b',fontSize:12}}>{err}</div>}
+            <button className="btn btns" onClick={verifyCode} disabled={busy||code.length<6} style={{width:'100%',justifyContent:'center',marginBottom:8}}>{busy?'Verifying…':'Confirm & Enable MFA'}</button>
+            <button className="btn" onClick={()=>{setStep(1);setCode('');setErr('');}} style={{width:'100%',justifyContent:'center',background:'#f1f5f9',color:'#475569'}}>← Back / Resend</button>
+          </>
+        ):(
+          <>
+            <div style={{textAlign:'center',padding:'20px 0'}}>
+              <div style={{fontSize:48,marginBottom:12}}>✅</div>
+              <h3 style={{color:'#166534',marginBottom:8}}>MFA Enabled Successfully!</h3>
+              <p style={{fontSize:13,color:'#64748b',marginBottom:20}}>Your account is now protected with SMS two-factor authentication. Next time you log in, you'll receive a verification code by SMS.</p>
+              <button className="btn btnp" onClick={onClose} style={{justifyContent:'center'}}>Done</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ══════════════════ APP ══════════════════
 function App(){
   const [tab,setTab]=React.useState('dashboard');
@@ -2776,6 +2933,7 @@ function App(){
   const [dueN,setDueN]=React.useState([]);
   const [lang,setLang]=React.useState('en');
   const [navOpen,setNavOpen]=React.useState(false);
+  const [mfaOpen,setMfaOpen]=React.useState(false);
   const closeNav=()=>setNavOpen(false);
   const L=k=>t(lang,k);
   const [data,setData]=React.useState({students:{},incidents:{},studentPositives:{},staff:{},teachers:{},fbas:{},houses:null,classColors:null,housePoints:{},attendance:{},uniformChecks:{},dailyCards:{},resources:[],notifications:[],activeUsers:{},teacherSchedule:{},teacherDutyChecks:{},teacherIncidents:{},teacherPositives:{},libraryBooks:{},libraryLoans:{},libraryMembers:{},rolePermissions:{},staffPermissions:{},parentContacts:{},calendarDays:{},calendarEvents:{},config:{},parentMessages:{},studentVoice:{},nurseCases:{},nurseStaffCases:{},nurseProtocols:{}});
@@ -2824,6 +2982,29 @@ function App(){
     });
     return()=>unsub();
   },[]);
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // ── Auto-logout after 30 min inactivity ──────────────────────────────────
+  const [idleWarning,setIdleWarning]=React.useState(false);
+  React.useEffect(()=>{
+    if(!user)return;
+    const TIMEOUT=30*60*1000;   // 30 minutes
+    const WARN=25*60*1000;      // warn at 25 minutes
+    let warnTimer,logoutTimer;
+    const reset=()=>{
+      setIdleWarning(false);
+      clearTimeout(warnTimer);clearTimeout(logoutTimer);
+      warnTimer=setTimeout(()=>setIdleWarning(true),WARN);
+      logoutTimer=setTimeout(()=>{auth.signOut();},TIMEOUT);
+    };
+    const events=['mousemove','mousedown','keydown','touchstart','scroll','click'];
+    events.forEach(e=>window.addEventListener(e,reset,{passive:true}));
+    reset();
+    return()=>{
+      clearTimeout(warnTimer);clearTimeout(logoutTimer);
+      events.forEach(e=>window.removeEventListener(e,reset));
+    };
+  },[user]);
   // ──────────────────────────────────────────────────────────────────────────
 
   React.useEffect(()=>{
@@ -2930,7 +3111,12 @@ function App(){
               <span>{i.ic}</span><span>{i.lb}</span>
             </div>
           )))}
-          <div style={{padding:'12px 16px'}}>
+          <div style={{padding:'8px 16px 4px'}}>
+            <button onClick={()=>setMfaOpen(true)} style={{width:'100%',background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.18)',borderRadius:8,color:'#fff',padding:'7px 12px',fontSize:12,cursor:'pointer',display:'flex',alignItems:'center',gap:7,fontFamily:'inherit'}}>
+              🔐 <span>{lang==='ar'?'المصادقة الثنائية':'Two-Factor Auth (MFA)'}</span>
+            </button>
+          </div>
+          <div style={{padding:'4px 16px 12px'}}>
             <button className="btn btng bsm" style={{width:'100%',color:'#fff',borderColor:'rgba(255,255,255,0.25)'}} onClick={()=>auth.signOut()}>{lang==='ar'?'↩ خروج':'↩ Log Out'}</button>
           </div>
         </div>
@@ -2950,6 +3136,14 @@ function App(){
             {dbSt==='live'?'Live':dbSt==='saving'?'Saving…':'Offline'}
           </span>
         </div>
+        {mfaOpen&&<MFAModal onClose={()=>setMfaOpen(false)}/>}
+        {idleWarning&&(
+          <div style={{position:'fixed',bottom:24,right:24,zIndex:9998,background:'#1a1a2e',color:'#fff',borderRadius:12,padding:'16px 20px',boxShadow:'0 8px 32px rgba(0,0,0,0.3)',maxWidth:320,fontSize:13}}>
+            <div style={{fontWeight:700,marginBottom:6}}>⏱️ Session Expiring Soon</div>
+            <div style={{opacity:0.85,marginBottom:12}}>You'll be logged out in 5 minutes due to inactivity. Click anywhere to stay signed in.</div>
+            <button onClick={()=>setIdleWarning(false)} style={{background:'#e94560',border:'none',color:'#fff',borderRadius:8,padding:'6px 16px',cursor:'pointer',fontWeight:600,fontSize:12}}>Stay Signed In</button>
+          </div>
+        )}
         {notifP&&<NotifPanel ns={dueN} setNs={setDueN} onClose={()=>setNotifP(false)}/>}
         {dbErr&&(
           <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:0,padding:'10px 20px',display:'flex',alignItems:'center',gap:12,fontSize:13,color:'#991b1b',zIndex:100,position:'sticky',top:0}}>
