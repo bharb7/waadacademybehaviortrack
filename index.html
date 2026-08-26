@@ -10,6 +10,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-check-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -153,6 +154,14 @@ label{font-size:12px;font-weight:600;color:#64748b;margin-bottom:4px;display:blo
 // ── Firebase Config ──
 const firebaseConfig={apiKey:"AIzaSyBX6GaJoG0AjSWjZtwaytSzcn6If5-TsBI",authDomain:"behavior-tracker-dde26.firebaseapp.com",databaseURL:"https://behavior-tracker-dde26-default-rtdb.firebaseio.com",projectId:"behavior-tracker-dde26",storageBucket:"behavior-tracker-dde26.firebasestorage.app",messagingSenderId:"935526629025",appId:"1:935526629025:web:7a2e5cec8eac756060bae0",measurementId:"G-E1ZDHELD2W"};
 firebase.initializeApp(firebaseConfig);
+// ── Firebase App Check (reCAPTCHA v3) ──
+// Protects all Firebase endpoints — only requests from bharb7.github.io are accepted.
+// Replace SITE_KEY_HERE with your reCAPTCHA v3 Site Key from g.co/recaptcha/admin
+const _appCheck = firebase.appCheck();
+_appCheck.activate(
+  new firebase.appCheck.ReCaptchaV3Provider('6LeDl5ktAAAAAL75S8Ye0mQVW8hL_iQ6xP9WthOR'),
+  true // auto-refresh token silently in background
+);
 const db=firebase.database();
 const auth=firebase.auth();
 // Secondary Firebase app — used to create new Auth accounts without logging out the admin
