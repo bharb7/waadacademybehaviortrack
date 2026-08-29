@@ -2929,6 +2929,7 @@ function App(){
   const [dbErr,setDbErr]=React.useState(null);
   const [user,setUser]=React.useState(null);
   const [authChecked,setAuthChecked]=React.useState(true); // always true — no Firebase Auth
+  const [dataLoaded,setDataLoaded]=React.useState(false); // true after first RTDB snapshot
   const [loginF,setLoginF]=React.useState({name:'',pass:''});
   const [notifP,setNotifP]=React.useState(false);
   const [dueN,setDueN]=React.useState([]);
@@ -2952,7 +2953,7 @@ function App(){
       // opening the app before that first snapshot loaded would overwrite the whole staff list back to the
       // 8 built-in defaults, silently deleting any staff you'd added or edited.
       if(!v.staff||Object.keys(v.staff).length===0){const s={};DEF_STAFF.forEach(x=>{s[x.id]=x;});db.ref('/btpro/staff').set(s);}
-      setDbSt('live');setDbErr(null);
+      setDataLoaded(true);setDbSt('live');setDbErr(null);
     },err=>{
       // Firebase read was DENIED or network error — show visible banner so users aren't left with empty data and no explanation
       console.error('Firebase read error:',err);
@@ -3034,7 +3035,7 @@ function App(){
   // ────────────────────────────────────────────────────────────────────────────
 
   // Show a neutral splash while Firebase Auth resolves (avoids login flicker)
-  if(!authChecked) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'linear-gradient(135deg,#1a1a2e,#16213e)',flexDirection:'column',gap:16}}><div style={{fontSize:40}}>🏫</div><div style={{color:'#fff',fontSize:16,opacity:0.7}}>Loading…</div></div>;
+  if(!dataLoaded) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'linear-gradient(135deg,#1a1a2e,#16213e)',flexDirection:'column',gap:16}}><div style={{fontSize:40}}>🏫</div><div style={{color:'#fff',fontSize:16,opacity:0.7}}>Loading…</div></div>;
   if(!user) return <Login form={loginF} setForm={setLoginF} data={data} onLogin={u=>setUser(u)}/>;
 
   const unread=dueN.filter(n=>!n.dismissed).length;
