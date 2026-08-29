@@ -10,7 +10,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
-<!-- app-check removed: firebase rules protect DB; appCheck script caused blank page on subfolder deployments -->
+<!-- App Check removed: Firebase DB rules (auth!=null) provide security; AppCheck broke subfolder GitHub Pages URL -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -154,9 +154,7 @@ label{font-size:12px;font-weight:600;color:#64748b;margin-bottom:4px;display:blo
 // ── Firebase Config ──
 const firebaseConfig={apiKey:"AIzaSyBX6GaJoG0AjSWjZtwaytSzcn6If5-TsBI",authDomain:"behavior-tracker-dde26.firebaseapp.com",databaseURL:"https://behavior-tracker-dde26-default-rtdb.firebaseio.com",projectId:"behavior-tracker-dde26",storageBucket:"behavior-tracker-dde26.firebasestorage.app",messagingSenderId:"935526629025",appId:"1:935526629025:web:7a2e5cec8eac756060bae0",measurementId:"G-E1ZDHELD2W"};
 firebase.initializeApp(firebaseConfig);
-// ── Firebase App Check (reCAPTCHA v3) ──
-// Protects all Firebase endpoints — only requests from bharb7.github.io are accepted.
-// firebase.appCheck().activate('6LeDl5ktAAAAAL75S8Ye0mQVW8hL_iQ6xP9WthOR', true); // disabled — causes blank page on GitHub Pages
+// App Check removed — Firebase rules enforce auth!=null which is sufficient protection
 const db=firebase.database();
 const auth=firebase.auth();
 // Secondary Firebase app — used to create new Auth accounts without logging out the admin
@@ -1490,8 +1488,8 @@ function CalEventModal({ev,calDays,eventTypeList,onSave,onClose,isAr}){
           <div><label>{isAr?'المادة':'Subject'}</label><input value={f.subject} onChange={e=>u('subject',e.target.value)} placeholder="All / Math / Science…"/></div>
           <div><label>{isAr?'المسؤول':'Owner'}</label><input value={f.owner} onChange={e=>u('owner',e.target.value)}/></div>
         </div>
-        <div className="fr"><div><label>⚕️ {isAr?'ملاحظات طبية / احتياجات خاصة':'SEN / Medical Note'}</label><textarea value={f.notes} onChange={e=>u('notes',e.target.value)} rows={2} placeholder={isAr?'مثال: حساسية الفول السوداني — يحمل قلم EpiPen. توحد — راجع إجراء الدعم.':'e.g. Peanut allergy — carries EpiPen. Autism — follow support procedure.'}/></div></div>
-        <div className="fr"><div><label>📋 {isAr?'ملاحظة التسجيل':'Registration Note'}</label><textarea value={f.regNote||''} onChange={e=>u('regNote',e.target.value)} rows={2} placeholder={isAr?'مثال: وثائق ناقصة، قيد مؤقت، ملاحظة إدارية...':'e.g. Missing documents, provisional enrolment, admin comment…'}/></div></div>
+        <div className="fr"><div><label>⚕️ {isAr?'ملاحظة طبية / احتياجات خاصة':'SEN / Medical Note'}</label><textarea value={f.notes} onChange={e=>u('notes',e.target.value)} rows={2} placeholder={isAr?'مثال: حساسية الفول السوداني — يحمل قلم EpiPen':'e.g. Peanut allergy — carries EpiPen. Autism — see support plan.'}/></div></div>
+        <div className="fr"><div><label>📋 {isAr?'ملاحظة التسجيل':'Registration Note'}</label><textarea value={f.regNote||''} onChange={e=>u('regNote',e.target.value)} rows={2} placeholder={isAr?'مثال: وثائق ناقصة، قيد مؤقت':'e.g. Missing documents, provisional enrolment, admin comment…'}/></div></div>
         <div className="fr"><div>
           <label>{isAr?'الصفوف المشمولة — ضع علامة على كل صف ينطبق عليه':'Applies to — tick every grade this event covers (a G4–G6 trip is ONE row with three ticks, not three rows)'}</label>
           <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8,marginTop:6}}>
@@ -4972,8 +4970,7 @@ function Dashboard({data,houses,clsCols,lang,L,setTab,user}){
             {label:isAr?'حرجة/عالية':'Critical/High',val:nurseHighCases.length,color:'#7c3aed',bg:'#faf5ff'},
             {label:isAr?'محوَّلة خارجياً':'Referred Out',val:nurseReferredOpen.length,color:'#f59e0b',bg:'#fffbeb'},
             {label:isAr?'أُبلغ الأهل':'Parent Notified',val:nurseParentOpen.length,color:'#ec4899',bg:'#fdf2f8'},
-            {label:isAr?'ملاحظات طبية':'SEN/Medical',val:careFlagged.length,color:'#dc2626',bg:'#fff7f7'},
-            {label:isAr?'ملاحظات تسجيل':'Reg. Notes',val:regFlagged.length,color:'#1d4ed8',bg:'#eff6ff'},
+            {label:isAr?'ملاحظات صحية':'Care-Note Students',val:careFlagged.length,color:'#dc2626',bg:'#fff7f7'},
             {label:isAr?'حالات الكادر المفتوحة':'Open Staff Cases',val:nurseStaffCasesDash.filter(c=>c.status==='open').length,color:'#0ea5e9',bg:'#f0f9ff'},
           ].map(k=>(
             <div key={k.label} style={{flex:'1 1 90px',minWidth:80,background:k.bg,border:`1px solid ${k.color}33`,borderRadius:10,padding:'10px 12px',textAlign:'center'}}>
@@ -5066,7 +5063,7 @@ function Dashboard({data,houses,clsCols,lang,L,setTab,user}){
             {openSC.length>4&&<div style={{fontSize:11,color:'#0ea5e9',marginTop:4,cursor:'pointer'}} onClick={()=>setTab('nurse')}>+{openSC.length-4} more → Open Nurse</div>}
           </div>);
         })()}
-        {/* ⚕️ SEN / Medical Notes — collapsible */}
+        {/* ⚕️ SEN / Medical Alerts */}
         <div style={{borderTop:'1px solid #fee2e2',paddingTop:10,marginTop:4}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:careFlagged.length?'pointer':'default',padding:'4px 0'}}
             onClick={()=>careFlagged.length&&setCareDrill(v=>!v)}>
@@ -5081,21 +5078,12 @@ function Dashboard({data,houses,clsCols,lang,L,setTab,user}){
             <div style={{marginTop:8,maxHeight:220,overflowY:'auto'}}>
               <table className="tbl" style={{fontSize:12}}>
                 <thead><tr><th>{isAr?'الطالب':'Student'}</th><th>{isAr?'الصف':'Grade'}</th><th>{isAr?'الفصل':'Class'}</th><th>{isAr?'الملاحظة الطبية':'SEN / Medical Note'}</th></tr></thead>
-                <tbody>
-                  {careFlagged.map(s=>(
-                    <tr key={s.id} style={{cursor:'pointer'}} onClick={()=>setSelStu(s)}>
-                      <td style={{fontWeight:600}}>{s.name}</td>
-                      <td>G{s.grade}</td>
-                      <td>{s.classColor||'—'}</td>
-                      <td style={{color:'#7c2d12'}}>{s.notes}</td>
-                    </tr>
-                  ))}
-                </tbody>
+                <tbody>{careFlagged.map(s=>(<tr key={s.id} style={{cursor:'pointer'}} onClick={()=>setSelStu(s)}><td style={{fontWeight:600}}>{s.name}</td><td>G{s.grade}</td><td>{s.classColor||'—'}</td><td style={{color:'#7c2d12'}}>{s.notes}</td></tr>))}</tbody>
               </table>
             </div>
           )}
         </div>
-        {/* 📋 Registration Notes — collapsible */}
+        {/* 📋 Registration Notes */}
         <div style={{borderTop:'1px solid #dbeafe',paddingTop:10,marginTop:8}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:regFlagged.length?'pointer':'default',padding:'4px 0'}}
             onClick={()=>regFlagged.length&&setRegDrill(v=>!v)}>
@@ -5110,16 +5098,7 @@ function Dashboard({data,houses,clsCols,lang,L,setTab,user}){
             <div style={{marginTop:8,maxHeight:220,overflowY:'auto'}}>
               <table className="tbl" style={{fontSize:12}}>
                 <thead><tr><th>{isAr?'الطالب':'Student'}</th><th>{isAr?'الصف':'Grade'}</th><th>{isAr?'الفصل':'Class'}</th><th>{isAr?'ملاحظة التسجيل':'Registration Note'}</th></tr></thead>
-                <tbody>
-                  {regFlagged.map(s=>(
-                    <tr key={s.id} style={{cursor:'pointer'}} onClick={()=>setSelStu(s)}>
-                      <td style={{fontWeight:600}}>{s.name}</td>
-                      <td>G{s.grade}</td>
-                      <td>{s.classColor||'—'}</td>
-                      <td style={{color:'#1e40af'}}>{s.regNote}</td>
-                    </tr>
-                  ))}
-                </tbody>
+                <tbody>{regFlagged.map(s=>(<tr key={s.id} style={{cursor:'pointer'}} onClick={()=>setSelStu(s)}><td style={{fontWeight:600}}>{s.name}</td><td>G{s.grade}</td><td>{s.classColor||'—'}</td><td style={{color:'#1e40af'}}>{s.regNote}</td></tr>))}</tbody>
               </table>
             </div>
           )}
@@ -6876,8 +6855,8 @@ function StuModal({stu,houses,clsCols,onSave,onClose}){
           <div><label>Class Colour</label><select value={f.classColor} onChange={e=>u('classColor',e.target.value)}>{clsCols.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
           <div><label>House</label><select value={f.house} onChange={e=>u('house',e.target.value)}>{houses.map(h=><option key={h.id} value={h.id}>{h.emoji} {h.name}</option>)}</select></div>
         </div>
-        <div className="fr"><div><label>⚕️ {isAr?'ملاحظة طبية / احتياجات خاصة':'SEN / Medical Note'}</label><textarea value={f.notes||''} onChange={e=>u('notes',e.target.value)} rows={2} placeholder={isAr?'مثال: حساسية الفول السوداني — يحمل قلم EpiPen. توحد — راجع إجراء الدعم.':'e.g. Autism — follow procedure link. Peanut allergy — carries EpiPen.'}/><div style={{fontSize:11,color:'#94a3b8',marginTop:4}}>{isAr?'أي طالب لديه ملاحظة هنا يظهر تلقائياً في لوحة البيانات للوعي.':'Any student with a note here is automatically flagged on the Dashboard for staff awareness.'}</div></div></div>
-        <div className="fr"><div><label>📋 {isAr?'ملاحظة التسجيل':'Registration Note'}</label><textarea value={f.regNote||''} onChange={e=>u('regNote',e.target.value)} rows={2} placeholder={isAr?'مثال: وثائق ناقصة، قيد مؤقت، ملاحظة إدارية...':'e.g. Missing documents, provisional enrolment, admin comment…'}/><div style={{fontSize:11,color:'#94a3b8',marginTop:4}}>{isAr?'تظهر في جدول الطلاب وبطاقة التسجيل على لوحة البيانات.':'Appears in student table and Registration Notes card on Dashboard.'}</div></div></div>
+        <div className="fr"><div><label>⚕️ {isAr?'ملاحظة طبية / احتياجات خاصة':'SEN / Medical Note'}</label><textarea value={f.notes||''} onChange={e=>u('notes',e.target.value)} rows={2} placeholder={isAr?'مثال: حساسية الفول السوداني — يحمل قلم EpiPen':'e.g. Autism — follow procedure. Peanut allergy — carries EpiPen.'}/><div style={{fontSize:11,color:'#94a3b8',marginTop:4}}>{isAr?'يظهر تلقائياً في لوحة البيانات وفي سجل الحضور.':'Flagged automatically on Dashboard and visible in Attendance.'}</div></div></div>
+        <div className="fr"><div><label>📋 {isAr?'ملاحظة التسجيل':'Registration Note'}</label><textarea value={f.regNote||''} onChange={e=>u('regNote',e.target.value)} rows={2} placeholder={isAr?'مثال: وثائق ناقصة، قيد مؤقت':'e.g. Missing documents, provisional enrolment, admin comment…'}/><div style={{fontSize:11,color:'#94a3b8',marginTop:4}}>{isAr?'تظهر في جدول الطلاب وبطاقة التسجيل على لوحة البيانات.':'Appears in student table and Registration Notes card on Dashboard.'}</div></div></div>
         <div className="fr"><div><label>🔗 Procedure / Support Link <span style={{fontWeight:400,color:'#94a3b8'}}>(optional — Google Doc, PDF, or any URL with the procedure staff should follow)</span></label><input value={f.noteLink||''} onChange={e=>u('noteLink',e.target.value)} placeholder="https://docs.google.com/..." dir="ltr"/></div></div>
         {!!f.needsReview&&(
           <div className="fr"><div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,padding:10}}>
