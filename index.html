@@ -2922,15 +2922,16 @@ function MFAModal({onClose}){
 
 // ══════════════════ APP ══════════════════
 function App(){
-  // Auth state tracked for anonymous RTDB access
-  const [anonReady,setAnonReady]=React.useState(false);
-  React.useEffect(()=>{firebase.auth().signInAnonymously().then(()=>setAnonReady(true)).catch(()=>setAnonReady(true));},[]);
   const [tab,setTab]=React.useState('dashboard');
   const [dbSt,setDbSt]=React.useState('connecting');
   const [dbErr,setDbErr]=React.useState(null);
   const [user,setUser]=React.useState(null);
-  const [authChecked,setAuthChecked]=React.useState(true); // always true — no Firebase Auth
-  const [dataLoaded,setDataLoaded]=React.useState(false); // true after first RTDB snapshot
+  React.useEffect(()=>{
+    const h=e=>setUser(e.detail);
+    window.addEventListener('btpro-login',h);
+    return()=>window.removeEventListener('btpro-login',h);
+  },[]);
+  const [authChecked,setAuthChecked]=React.useState(true);
   const [loginF,setLoginF]=React.useState({name:'',pass:''});
   const [notifP,setNotifP]=React.useState(false);
   const [dueN,setDueN]=React.useState([]);
@@ -2942,7 +2943,6 @@ function App(){
   const [data,setData]=React.useState({students:{},incidents:{},studentPositives:{},staff:{},teachers:{},fbas:{},houses:null,classColors:null,housePoints:{},attendance:{},uniformChecks:{},dailyCards:{},resources:[],notifications:[],activeUsers:{},teacherSchedule:{},teacherDutyChecks:{},teacherIncidents:{},teacherPositives:{},libraryBooks:{},libraryLoans:{},libraryMembers:{},rolePermissions:{},staffPermissions:{},parentContacts:{},calendarDays:{},calendarEvents:{},config:{},parentMessages:{},studentVoice:{},nurseCases:{},nurseStaffCases:{},nurseProtocols:{}});
 
   React.useEffect(()=>{
-    if(!anonReady)return;
     const ref=db.ref('/btpro');
     ref.on('value',snap=>{
       const v=snap.val()||{};
@@ -2953,7 +2953,7 @@ function App(){
       // opening the app before that first snapshot loaded would overwrite the whole staff list back to the
       // 8 built-in defaults, silently deleting any staff you'd added or edited.
       if(!v.staff||Object.keys(v.staff).length===0){const s={};DEF_STAFF.forEach(x=>{s[x.id]=x;});db.ref('/btpro/staff').set(s);}
-      setDataLoaded(true);setDbSt('live');setDbErr(null);
+      setDbSt('live');setDbErr(null);
     },err=>{
       // Firebase read was DENIED or network error — show visible banner so users aren't left with empty data and no explanation
       console.error('Firebase read error:',err);
@@ -2964,9 +2964,9 @@ function App(){
     });
     db.ref('.info/connected').on('value',s=>{if(s.val()===false)setDbSt('offline');});
     return()=>ref.off();
-  },[anonReady]);
+  },[]);
 
-  // ── Auth is now simple RTDB name+PIN — no Firebase Auth listener needed ──
+  // Auth handled by login form directly
 
   // ── Auto-logout after 30 min inactivity ──────────────────────────────────
   const [idleWarning,setIdleWarning]=React.useState(false);
@@ -3035,8 +3035,8 @@ function App(){
   // ────────────────────────────────────────────────────────────────────────────
 
   // Show a neutral splash while Firebase Auth resolves (avoids login flicker)
-  if(!dataLoaded) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'linear-gradient(135deg,#1a1a2e,#16213e)',flexDirection:'column',gap:16}}><div style={{fontSize:40}}>🏫</div><div style={{color:'#fff',fontSize:16,opacity:0.7}}>Loading…</div></div>;
-  if(!user) return <Login form={loginF} setForm={setLoginF} data={data} onLogin={u=>setUser(u)}/>;
+  if(!authChecked) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'linear-gradient(135deg,#1a1a2e,#16213e)',flexDirection:'column',gap:16}}><div style={{fontSize:40}}>🏫</div><div style={{color:'#fff',fontSize:16,opacity:0.7}}>Loading…</div></div>;
+  if(!user) return <Login form={loginF} setForm={setLoginF} data={data}/>;
 
   const unread=dueN.filter(n=>!n.dismissed).length;
   const NAV_ALL=[
@@ -4174,46 +4174,40 @@ function TeacherTasks({data,sv,up,user,lang,L}){
 }
 
 // ══════════════════ LOGIN ══════════════════
-function Login({form,setForm,onLogin,data}){
+function Login({form,setForm,data}){
   const [err,setErr]=React.useState('');
-  const [loading,setLoading]=React.useState(false);
   const handle=()=>{
     const name=(form.name||'').trim().toLowerCase();
-    const pass=form.pass||'';
+    const pass=(form.pass||'');
     if(!name){setErr('Enter your name');return;}
     if(!pass){setErr('Enter your password');return;}
-    setLoading(true);setErr('');
-    // Look up in staff list
-    const staffList=Object.values(data.staff||{});
-    const teacherList=Object.values(data.teachers||{}).map(t=>({...t,role:t.role||'Teacher'}));
-    const all=[...staffList,...teacherList];
+    const all=[...Object.values(data.staff||{}),...Object.values(data.teachers||{}).map(t=>({...t,role:t.role||'Teacher'}))];
     const found=all.find(u=>(u.name||'').trim().toLowerCase()===name);
-    if(!found){setLoading(false);setErr('Name not found. Check spelling or contact admin.');return;}
-    // Check PIN: custom pin or default btpro2025
-    const correct=found.pin?found.pin:'btpro2025';
-    if(pass!==correct){setLoading(false);setErr('Incorrect password.');return;}
-    setLoading(false);
-    onLogin(found);
+    if(!found){setErr('Name not found. Try: Bilal Omar Harb');return;}
+    const correct=found.pin||'btpro2025';
+    if(pass!==correct){setErr('Wrong password. Default is btpro2025');return;}
+    window._btproUser=found;
+    window.dispatchEvent(new CustomEvent('btpro-login',{detail:found}));
   };
-  return (
+  return(
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'linear-gradient(135deg,#1a1a2e,#16213e)'}}>
-      <div style={{background:'#fff',borderRadius:20,padding:40,width:380,boxShadow:'0 20px 60px rgba(0,0,0,0.4)'}}>
+      <div style={{background:'#fff',borderRadius:20,padding:40,width:360,boxShadow:'0 20px 60px rgba(0,0,0,0.4)'}}>
         <div style={{textAlign:'center',marginBottom:28}}>
           <div style={{fontSize:44,marginBottom:8}}>🏫</div>
           <div style={{fontSize:20,fontWeight:700}}>BehaviorTrack Pro</div>
-          <div style={{fontSize:12,color:'#64748b',marginTop:3}}>School Behaviour Management · إدارة السلوك المدرسي</div>
+          <div style={{fontSize:12,color:'#64748b',marginTop:3}}>School Behaviour Management</div>
         </div>
         <div style={{marginBottom:12}}>
           <label style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>Your Name</label>
-          <input type="text" placeholder="e.g. Bilal Omar Harb" value={form.name||''} onChange={e=>setForm(f=>({...f,name:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&handle()} autoComplete="name" style={{width:'100%'}}/>
+          <input type="text" placeholder="e.g. Bilal Omar Harb" value={form.name||''} onChange={e=>setForm(f=>({...f,name:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&handle()} style={{width:'100%',padding:'8px 11px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13}}/>
         </div>
         <div style={{marginBottom:16}}>
           <label style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>Password</label>
-          <input type="password" placeholder="Default: btpro2025" value={form.pass||''} onChange={e=>setForm(f=>({...f,pass:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&handle()} autoComplete="current-password" style={{width:'100%'}}/>
+          <input type="password" placeholder="Default: btpro2025" value={form.pass||''} onChange={e=>setForm(f=>({...f,pass:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&handle()} style={{width:'100%',padding:'8px 11px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13}}/>
         </div>
         {err&&<div style={{color:'#dc2626',fontSize:12,marginBottom:10,background:'#fef2f2',border:'1px solid #fecaca',borderRadius:6,padding:'6px 10px'}}>{err}</div>}
-        <button className="btn btnp" style={{width:'100%',opacity:loading?0.6:1}} onClick={handle} disabled={loading}>{loading?'Signing in…':'Sign In →'}</button>
-        <div style={{marginTop:16,fontSize:11,color:'#94a3b8',textAlign:'center',lineHeight:1.5}}>Default password: btpro2025<br/>Contact admin to change your password.</div>
+        <button style={{width:'100%',padding:'10px',background:'#1a73e8',color:'#fff',border:'none',borderRadius:8,fontSize:14,fontWeight:600,cursor:'pointer'}} onClick={handle}>Sign In →</button>
+        <div style={{marginTop:12,fontSize:11,color:'#94a3b8',textAlign:'center'}}>Default password: btpro2025</div>
       </div>
     </div>
   );
@@ -8679,14 +8673,18 @@ function FirebaseAccountsPanel({data,up,isAr,allStaff,allTeachers}){
   return(
     <div>
       {/* Header & instructions */}
-      <div className="card" style={{marginBottom:14,background:'#f0fdf4',border:'1px solid #86efac'}}>
+      <div className="card" style={{marginBottom:14,background:'#eff6ff',border:'1px solid #bfdbfe'}}>
         <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
           <div style={{fontSize:28}}>🔑</div>
           <div>
-            <div style={{fontWeight:700,marginBottom:4}}>Staff Login — Name + Password</div>
+            <div style={{fontWeight:700,marginBottom:4}}>Firebase Login Accounts</div>
             <div style={{fontSize:12,color:'#475569',lineHeight:1.6}}>
-              Staff log in using their <strong>full name</strong> and <strong>password</strong>. Default password for everyone is <strong>btpro2025</strong>.<br/>
-              Set a custom password below (leave blank = default).
+              Each person needs a Firebase Auth account before they can sign in. Set their email (use the auto-suggested one or type a custom one), enter an initial password (6+ characters), then click <strong>Create Account</strong>. They can reset their own password later using "Forgot password?" on the login screen.<br/>
+              <strong style={{color:'#1d4ed8'}}>Their login email must match what is stored here.</strong>
+            </div>
+            <div style={{marginTop:8,padding:'6px 10px',background:'#fef3c7',border:'1px solid #fbbf24',borderRadius:6,fontSize:11,color:'#92400e'}}>
+              🔒 Security tip: once all accounts are created, paste these rules into the Firebase console → Realtime Database → Rules to lock down the database:<br/>
+              <code style={{display:'block',fontFamily:'monospace',marginTop:4,fontSize:12,color:'#1e293b'}}>{'{"rules":{".read":"auth != null",".write":"auth != null"}}'}</code>
             </div>
           </div>
         </div>
