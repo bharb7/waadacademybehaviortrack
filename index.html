@@ -156,7 +156,7 @@ const firebaseConfig={apiKey:"AIzaSyBX6GaJoG0AjSWjZtwaytSzcn6If5-TsBI",authDomai
 firebase.initializeApp(firebaseConfig);
 // ── Firebase App Check (reCAPTCHA v3) ──
 // Protects all Firebase endpoints — only requests from bharb7.github.io are accepted.
-firebase.appCheck().activate('6LeDl5ktAAAAAL75S8Ye0mQVW8hL_iQ6xP9WthOR', true);
+// firebase.appCheck().activate('6LeDl5ktAAAAAL75S8Ye0mQVW8hL_iQ6xP9WthOR', true); // disabled — causes blank page on GitHub Pages
 const db=firebase.database();
 const auth=firebase.auth();
 // Secondary Firebase app — used to create new Auth accounts without logging out the admin
