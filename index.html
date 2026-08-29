@@ -2922,12 +2922,14 @@ function MFAModal({onClose}){
 
 // ══════════════════ APP ══════════════════
 function App(){
+  // Sign in anonymously on load so Firebase rules (auth!=null) pass for RTDB reads
+  React.useEffect(()=>{firebase.auth().signInAnonymously().catch(()=>{});},[]);
   const [tab,setTab]=React.useState('dashboard');
   const [dbSt,setDbSt]=React.useState('connecting');
   const [dbErr,setDbErr]=React.useState(null);
   const [user,setUser]=React.useState(null);
-  const [authChecked,setAuthChecked]=React.useState(false); // true once onAuthStateChanged has fired once
-  const [loginF,setLoginF]=React.useState({email:'',pass:''});
+  const [authChecked,setAuthChecked]=React.useState(true); // always true — no Firebase Auth
+  const [loginF,setLoginF]=React.useState({name:'',pass:''});
   const [notifP,setNotifP]=React.useState(false);
   const [dueN,setDueN]=React.useState([]);
   const [lang,setLang]=React.useState('en');
@@ -2938,6 +2940,8 @@ function App(){
   const [data,setData]=React.useState({students:{},incidents:{},studentPositives:{},staff:{},teachers:{},fbas:{},houses:null,classColors:null,housePoints:{},attendance:{},uniformChecks:{},dailyCards:{},resources:[],notifications:[],activeUsers:{},teacherSchedule:{},teacherDutyChecks:{},teacherIncidents:{},teacherPositives:{},libraryBooks:{},libraryLoans:{},libraryMembers:{},rolePermissions:{},staffPermissions:{},parentContacts:{},calendarDays:{},calendarEvents:{},config:{},parentMessages:{},studentVoice:{},nurseCases:{},nurseStaffCases:{},nurseProtocols:{}});
 
   React.useEffect(()=>{
+    if(!user){setAuthChecked(true);return;}
+
     const ref=db.ref('/btpro');
     ref.on('value',snap=>{
       const v=snap.val()||{};
@@ -2961,27 +2965,7 @@ function App(){
     return()=>ref.off();
   },[]);
 
-  // ── Firebase Auth listener ────────────────────────────────────────────────
-  React.useEffect(()=>{
-    const unsub=auth.onAuthStateChanged(async fbUser=>{
-      if(fbUser){
-        // Signed in — look up their profile in RTDB by the email they authenticated with
-        const profile=await lookupProfileByEmail(fbUser.email);
-        if(profile){
-          setUser(profile);
-        } else {
-          // Email exists in Firebase Auth but no matching RTDB profile — sign them back out
-          await auth.signOut();
-          setUser(null);
-        }
-      } else {
-        setUser(null);
-      }
-      setAuthChecked(true);
-    });
-    return()=>unsub();
-  },[]);
-  // ──────────────────────────────────────────────────────────────────────────
+  // ── Auth is now simple RTDB name+PIN — no Firebase Auth listener needed ──
 
   // ── Auto-logout after 30 min inactivity ──────────────────────────────────
   const [idleWarning,setIdleWarning]=React.useState(false);
@@ -2994,7 +2978,7 @@ function App(){
       setIdleWarning(false);
       clearTimeout(warnTimer);clearTimeout(logoutTimer);
       warnTimer=setTimeout(()=>setIdleWarning(true),WARN);
-      logoutTimer=setTimeout(()=>{auth.signOut();},TIMEOUT);
+      logoutTimer=setTimeout(()=>{setUser(null);},TIMEOUT);
     };
     const events=['mousemove','mousedown','keydown','touchstart','scroll','click'];
     events.forEach(e=>window.addEventListener(e,reset,{passive:true}));
@@ -3051,7 +3035,7 @@ function App(){
 
   // Show a neutral splash while Firebase Auth resolves (avoids login flicker)
   if(!authChecked) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'linear-gradient(135deg,#1a1a2e,#16213e)',flexDirection:'column',gap:16}}><div style={{fontSize:40}}>🏫</div><div style={{color:'#fff',fontSize:16,opacity:0.7}}>Loading…</div></div>;
-  if(!user) return <Login form={loginF} setForm={setLoginF} onLogin={()=>{}}/>;
+  if(!user) return <Login form={loginF} setForm={setLoginF} data={data} onLogin={u=>setUser(u)}/>;
 
   const unread=dueN.filter(n=>!n.dismissed).length;
   const NAV_ALL=[
@@ -3111,7 +3095,7 @@ function App(){
             </div>
           )))}
           <div style={{padding:'12px 16px'}}>
-            <button className="btn btng bsm" style={{width:'100%',color:'#fff',borderColor:'rgba(255,255,255,0.25)'}} onClick={()=>auth.signOut()}>{lang==='ar'?'↩ خروج':'↩ Log Out'}</button>
+            <button className="btn btng bsm" style={{width:'100%',color:'#fff',borderColor:'rgba(255,255,255,0.25)'}} onClick={()=>setUser(null)}>{lang==='ar'?'↩ خروج':'↩ Log Out'}</button>
           </div>
         </div>
       </div>
@@ -3144,7 +3128,7 @@ function App(){
           <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:0,padding:'10px 20px',display:'flex',alignItems:'center',gap:12,fontSize:13,color:'#991b1b',zIndex:100,position:'sticky',top:0}}>
             <span style={{fontSize:20}}>🔒</span>
             <span style={{flex:1,fontWeight:600}}>{dbErr}</span>
-            <button onClick={async()=>{try{await auth.signOut();}catch(e){}window.location.reload();}} style={{padding:'5px 14px',background:'#dc2626',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:12,whiteSpace:'nowrap'}}>Sign Out & Retry</button>
+            <button onClick={async()=>{try{await setUser(null);}catch(e){}window.location.reload();}} style={{padding:'5px 14px',background:'#dc2626',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:12,whiteSpace:'nowrap'}}>Sign Out & Retry</button>
             <button onClick={()=>window.location.reload()} style={{padding:'5px 14px',background:'#f97316',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:12,whiteSpace:'nowrap'}}>Refresh</button>
           </div>
         )}
@@ -4189,38 +4173,26 @@ function TeacherTasks({data,sv,up,user,lang,L}){
 }
 
 // ══════════════════ LOGIN ══════════════════
-function Login({form,setForm,onLogin}){
+function Login({form,setForm,onLogin,data}){
   const [err,setErr]=React.useState('');
   const [loading,setLoading]=React.useState(false);
-  const [resetSent,setResetSent]=React.useState(false);
-  const handle=async()=>{
-    const email=(form.email||'').trim();
+  const handle=()=>{
+    const name=(form.name||'').trim().toLowerCase();
     const pass=form.pass||'';
-    if(!email){setErr('Enter your email address');return;}
+    if(!name){setErr('Enter your name');return;}
     if(!pass){setErr('Enter your password');return;}
     setLoading(true);setErr('');
-    try{
-      await auth.signInWithEmailAndPassword(email,pass);
-      // onAuthStateChanged in App() will pick up the user — no need to do anything here
-    }catch(e){
-      let msg='Sign-in failed. Check your email and password.';
-      if(e.code==='auth/user-not-found'||e.code==='auth/invalid-credential')msg='No account found for this email. Contact your administrator.';
-      else if(e.code==='auth/wrong-password')msg='Incorrect password.';
-      else if(e.code==='auth/too-many-requests')msg='Too many attempts. Try again later or reset your password.';
-      else if(e.code==='auth/invalid-email')msg='Please enter a valid email address.';
-      setErr(msg);
-    }
+    // Look up in staff list
+    const staffList=Object.values(data.staff||{});
+    const teacherList=Object.values(data.teachers||{}).map(t=>({...t,role:t.role||'Teacher'}));
+    const all=[...staffList,...teacherList];
+    const found=all.find(u=>(u.name||'').trim().toLowerCase()===name);
+    if(!found){setLoading(false);setErr('Name not found. Check spelling or contact admin.');return;}
+    // Check PIN: custom pin or default btpro2025
+    const correct=found.pin?found.pin:'btpro2025';
+    if(pass!==correct){setLoading(false);setErr('Incorrect password.');return;}
     setLoading(false);
-  };
-  const handleReset=async()=>{
-    const email=(form.email||'').trim();
-    if(!email){setErr('Enter your email address first, then click Forgot Password.');return;}
-    try{
-      await auth.sendPasswordResetEmail(email);
-      setResetSent(true);setErr('');
-    }catch(e){
-      setErr('Could not send reset email. Make sure the email address is correct.');
-    }
+    onLogin(found);
   };
   return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'linear-gradient(135deg,#1a1a2e,#16213e)'}}>
@@ -4230,31 +4202,17 @@ function Login({form,setForm,onLogin}){
           <div style={{fontSize:20,fontWeight:700}}>BehaviorTrack Pro</div>
           <div style={{fontSize:12,color:'#64748b',marginTop:3}}>School Behaviour Management · إدارة السلوك المدرسي</div>
         </div>
-        {resetSent?(
-          <div style={{textAlign:'center',padding:'20px 0'}}>
-            <div style={{fontSize:32,marginBottom:10}}>📧</div>
-            <div style={{fontWeight:600,marginBottom:6}}>Password reset email sent</div>
-            <div style={{fontSize:12,color:'#64748b',marginBottom:16}}>Check your inbox and follow the link to set a new password.</div>
-            <button className="btn btng" style={{width:'100%'}} onClick={()=>setResetSent(false)}>← Back to Sign In</button>
-          </div>
-        ):(
-          <>
-            <div style={{marginBottom:12}}>
-              <label style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>Email Address</label>
-              <input type="email" placeholder="you@waadacademy.edu.sa" value={form.email||''} onChange={e=>setForm(f=>({...f,email:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&handle()} autoComplete="email" style={{width:'100%'}}/>
-            </div>
-            <div style={{marginBottom:6}}>
-              <label style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>Password</label>
-              <input type="password" placeholder="" value={form.pass||''} onChange={e=>setForm(f=>({...f,pass:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&handle()} autoComplete="current-password" style={{width:'100%'}}/>
-            </div>
-            <div style={{textAlign:'right',marginBottom:14}}>
-              <button onClick={handleReset} style={{background:'none',border:'none',color:'#3b82f6',fontSize:12,cursor:'pointer',padding:0}}>Forgot password?</button>
-            </div>
-            {err&&<div style={{color:'#dc2626',fontSize:12,marginBottom:10,background:'#fef2f2',border:'1px solid #fecaca',borderRadius:6,padding:'6px 10px'}}>{err}</div>}
-            <button className="btn btnp" style={{width:'100%',opacity:loading?0.6:1}} onClick={handle} disabled={loading}>{loading?'Signing in…':'Sign In →'}</button>
-            <div style={{marginTop:16,fontSize:11,color:'#94a3b8',textAlign:'center',lineHeight:1.5}}>Your account is managed by your school administrator.<br/>Contact admin if you need access.</div>
-          </>
-        )}
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>Your Name</label>
+          <input type="text" placeholder="e.g. Bilal Omar Harb" value={form.name||''} onChange={e=>setForm(f=>({...f,name:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&handle()} autoComplete="name" style={{width:'100%'}}/>
+        </div>
+        <div style={{marginBottom:16}}>
+          <label style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>Password</label>
+          <input type="password" placeholder="Default: btpro2025" value={form.pass||''} onChange={e=>setForm(f=>({...f,pass:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&handle()} autoComplete="current-password" style={{width:'100%'}}/>
+        </div>
+        {err&&<div style={{color:'#dc2626',fontSize:12,marginBottom:10,background:'#fef2f2',border:'1px solid #fecaca',borderRadius:6,padding:'6px 10px'}}>{err}</div>}
+        <button className="btn btnp" style={{width:'100%',opacity:loading?0.6:1}} onClick={handle} disabled={loading}>{loading?'Signing in…':'Sign In →'}</button>
+        <div style={{marginTop:16,fontSize:11,color:'#94a3b8',textAlign:'center',lineHeight:1.5}}>Default password: btpro2025<br/>Contact admin to change your password.</div>
       </div>
     </div>
   );
@@ -8720,18 +8678,14 @@ function FirebaseAccountsPanel({data,up,isAr,allStaff,allTeachers}){
   return(
     <div>
       {/* Header & instructions */}
-      <div className="card" style={{marginBottom:14,background:'#eff6ff',border:'1px solid #bfdbfe'}}>
+      <div className="card" style={{marginBottom:14,background:'#f0fdf4',border:'1px solid #86efac'}}>
         <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
           <div style={{fontSize:28}}>🔑</div>
           <div>
-            <div style={{fontWeight:700,marginBottom:4}}>Firebase Login Accounts</div>
+            <div style={{fontWeight:700,marginBottom:4}}>Staff Login — Name + Password</div>
             <div style={{fontSize:12,color:'#475569',lineHeight:1.6}}>
-              Each person needs a Firebase Auth account before they can sign in. Set their email (use the auto-suggested one or type a custom one), enter an initial password (6+ characters), then click <strong>Create Account</strong>. They can reset their own password later using "Forgot password?" on the login screen.<br/>
-              <strong style={{color:'#1d4ed8'}}>Their login email must match what is stored here.</strong>
-            </div>
-            <div style={{marginTop:8,padding:'6px 10px',background:'#fef3c7',border:'1px solid #fbbf24',borderRadius:6,fontSize:11,color:'#92400e'}}>
-              🔒 Security tip: once all accounts are created, paste these rules into the Firebase console → Realtime Database → Rules to lock down the database:<br/>
-              <code style={{display:'block',fontFamily:'monospace',marginTop:4,fontSize:12,color:'#1e293b'}}>{'{"rules":{".read":"auth != null",".write":"auth != null"}}'}</code>
+              Staff log in using their <strong>full name</strong> and <strong>password</strong>. Default password for everyone is <strong>btpro2025</strong>.<br/>
+              Set a custom password below (leave blank = default).
             </div>
           </div>
         </div>
