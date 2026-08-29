@@ -2922,8 +2922,9 @@ function MFAModal({onClose}){
 
 // ══════════════════ APP ══════════════════
 function App(){
-  // Sign in anonymously on load so Firebase rules (auth!=null) pass for RTDB reads
-  React.useEffect(()=>{firebase.auth().signInAnonymously().catch(()=>{});},[]);
+  // Auth state tracked for anonymous RTDB access
+  const [anonReady,setAnonReady]=React.useState(false);
+  React.useEffect(()=>{firebase.auth().signInAnonymously().then(()=>setAnonReady(true)).catch(()=>setAnonReady(true));},[]);
   const [tab,setTab]=React.useState('dashboard');
   const [dbSt,setDbSt]=React.useState('connecting');
   const [dbErr,setDbErr]=React.useState(null);
@@ -2964,7 +2965,7 @@ function App(){
     });
     db.ref('.info/connected').on('value',s=>{if(s.val()===false)setDbSt('offline');});
     return()=>ref.off();
-  },[]);
+  },[anonReady]);
 
   // ── Auth is now simple RTDB name+PIN — no Firebase Auth listener needed ──
 
