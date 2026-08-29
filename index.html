@@ -232,7 +232,7 @@ const TR={
     student:'Student',grade:'Grade',classLbl:'Class',house:'House',type:'Type',description:'Description',
     action:'Action Taken',loggedBy:'Logged By',lastAmended:'Last Amended',actions:'Actions',
     parentNotes:'Parent Notes',date:'Date',name:'Full Name',studentId:'Student ID',waadId:'Waad ID',
-    canvas:'Canvas Account',notes:'Notes',save:'💾 Save',cancel:'Cancel',close:'Close',
+    canvas:'Canvas Account',notes:'SEN / Medical Note',regNote:'Registration Note',save:'💾 Save',cancel:'Cancel',close:'Close',
     noIncidents:'No incidents logged',noStudents:'No students found',
     signIn:'Sign In →',yourName:'Your Name',password:'Password',defaultPass:'Default password: btpro2025',
     logOut:'↩ Log Out',online:'Online',offline:'Offline',live:'Live',saving:'Saving…',
@@ -255,7 +255,7 @@ const TR={
     search:'بحث…',allGrades:'كل الصفوف',allHouses:'كل البيوت',allClasses:'كل الفصول',allTypes:'كل الأنواع',
     student:'الطالب',grade:'الصف',classLbl:'الفصل',house:'البيت',type:'النوع',description:'الوصف',
     action:'الإجراء',loggedBy:'سجّله',lastAmended:'آخر تعديل',actions:'إجراءات',
-    parentNotes:'ملاحظات ولي الأمر',date:'التاريخ',name:'الاسم الكامل',studentId:'رقم الطالب',waadId:'رقم وعد',
+    parentNotes:'ملاحظات ولي الأمر',date:'التاريخ',name:'الاسم الكامل',studentId:'رقم الطالب',waadId:'رقم وعد',regNote:'ملاحظة التسجيل',
     canvas:'حساب Canvas',notes:'ملاحظات',save:'💾 حفظ',cancel:'إلغاء',close:'إغلاق',
     noIncidents:'لا توجد حوادث مسجّلة',noStudents:'لا يوجد طلاب',
     signIn:'دخول ←',yourName:'اسمك',password:'كلمة المرور',defaultPass:'كلمة المرور الافتراضية: btpro2025',
@@ -1490,7 +1490,8 @@ function CalEventModal({ev,calDays,eventTypeList,onSave,onClose,isAr}){
           <div><label>{isAr?'المادة':'Subject'}</label><input value={f.subject} onChange={e=>u('subject',e.target.value)} placeholder="All / Math / Science…"/></div>
           <div><label>{isAr?'المسؤول':'Owner'}</label><input value={f.owner} onChange={e=>u('owner',e.target.value)}/></div>
         </div>
-        <div className="fr"><div><label>{isAr?'ملاحظات':'Notes'}</label><textarea value={f.notes} onChange={e=>u('notes',e.target.value)} rows={2}/></div></div>
+        <div className="fr"><div><label>⚕️ {isAr?'ملاحظات طبية / احتياجات خاصة':'SEN / Medical Note'}</label><textarea value={f.notes} onChange={e=>u('notes',e.target.value)} rows={2} placeholder={isAr?'مثال: حساسية الفول السوداني — يحمل قلم EpiPen. توحد — راجع إجراء الدعم.':'e.g. Peanut allergy — carries EpiPen. Autism — follow support procedure.'}/></div></div>
+        <div className="fr"><div><label>📋 {isAr?'ملاحظة التسجيل':'Registration Note'}</label><textarea value={f.regNote||''} onChange={e=>u('regNote',e.target.value)} rows={2} placeholder={isAr?'مثال: وثائق ناقصة، قيد مؤقت، ملاحظة إدارية...':'e.g. Missing documents, provisional enrolment, admin comment…'}/></div></div>
         <div className="fr"><div>
           <label>{isAr?'الصفوف المشمولة — ضع علامة على كل صف ينطبق عليه':'Applies to — tick every grade this event covers (a G4–G6 trip is ONE row with three ticks, not three rows)'}</label>
           <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8,marginTop:6}}>
@@ -4311,6 +4312,7 @@ function Dashboard({data,houses,clsCols,lang,L,setTab,user}){
   const [absDrill,setAbsDrill]=React.useState(null); // 'Present'|'Late'|'Absent-Medical'|'Absent-Excused'|'Absent-Unexcused'|null
   const [uniDrill,setUniDrill]=React.useState(false); // true = show "No Uniform" drill-down list
   const [careDrill,setCareDrill]=React.useState(false);
+  const [regDrill,setRegDrill]=React.useState(false);
   const [tDutyDrill,setTDutyDrill]=React.useState(null); // 'AbsentExcused'|'AbsentUnexcused'|null
   const [libDrill,setLibDrill]=React.useState(null); // 'out'|'overdue'|'not_returned'|null
   const [bcDrill,setBcDrill]=React.useState(null); // 'national'|'global'|null — Book Check "Missing" drill-down
@@ -4334,6 +4336,7 @@ function Dashboard({data,houses,clsCols,lang,L,setTab,user}){
 
   // ── Care/medical flag: any student directory Note (allergy, medical condition, etc.) surfaces here for staff awareness ──
   const careFlagged=kpiStudents.filter(s=>s.notes&&s.notes.trim()).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+  const regFlagged=kpiStudents.filter(s=>s.regNote&&s.regNote.trim()).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
 
   // ── Nurse / Health dashboard stats ──
   const nurseCases=Object.values(data.nurseCases||{});
@@ -4969,7 +4972,8 @@ function Dashboard({data,houses,clsCols,lang,L,setTab,user}){
             {label:isAr?'حرجة/عالية':'Critical/High',val:nurseHighCases.length,color:'#7c3aed',bg:'#faf5ff'},
             {label:isAr?'محوَّلة خارجياً':'Referred Out',val:nurseReferredOpen.length,color:'#f59e0b',bg:'#fffbeb'},
             {label:isAr?'أُبلغ الأهل':'Parent Notified',val:nurseParentOpen.length,color:'#ec4899',bg:'#fdf2f8'},
-            {label:isAr?'ملاحظات صحية':'Care-Note Students',val:careFlagged.length,color:'#dc2626',bg:'#fff7f7'},
+            {label:isAr?'ملاحظات طبية':'SEN/Medical',val:careFlagged.length,color:'#dc2626',bg:'#fff7f7'},
+            {label:isAr?'ملاحظات تسجيل':'Reg. Notes',val:regFlagged.length,color:'#1d4ed8',bg:'#eff6ff'},
             {label:isAr?'حالات الكادر المفتوحة':'Open Staff Cases',val:nurseStaffCasesDash.filter(c=>c.status==='open').length,color:'#0ea5e9',bg:'#f0f9ff'},
           ].map(k=>(
             <div key={k.label} style={{flex:'1 1 90px',minWidth:80,background:k.bg,border:`1px solid ${k.color}33`,borderRadius:10,padding:'10px 12px',textAlign:'center'}}>
@@ -5062,33 +5066,64 @@ function Dashboard({data,houses,clsCols,lang,L,setTab,user}){
             {openSC.length>4&&<div style={{fontSize:11,color:'#0ea5e9',marginTop:4,cursor:'pointer'}} onClick={()=>setTab('nurse')}>+{openSC.length-4} more → Open Nurse</div>}
           </div>);
         })()}
-        {/* Students with directory care notes — collapsible */}
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:careFlagged.length?'pointer':'default',padding:'6px 0'}}
-          onClick={()=>careFlagged.length&&setCareDrill(v=>!v)}>
-          <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <span style={{fontSize:16}}>⚕️</span>
-            <div style={{fontSize:13,fontWeight:600}}>{isAr?'طلاب لديهم ملاحظات صحية/رعاية':'Students with Health / Care Notes'}</div>
-            <span style={{fontSize:22,fontWeight:800,color:careFlagged.length?'#dc2626':'#16a34a',marginLeft:6}}>{careFlagged.length}</span>
+        {/* ⚕️ SEN / Medical Notes — collapsible */}
+        <div style={{borderTop:'1px solid #fee2e2',paddingTop:10,marginTop:4}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:careFlagged.length?'pointer':'default',padding:'4px 0'}}
+            onClick={()=>careFlagged.length&&setCareDrill(v=>!v)}>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <span style={{fontSize:16}}>⚕️</span>
+              <div style={{fontSize:13,fontWeight:600,color:'#991b1b'}}>{isAr?'ملاحظات طبية / احتياجات خاصة':'SEN / Medical Alerts'}</div>
+              <span style={{fontSize:20,fontWeight:800,color:careFlagged.length?'#dc2626':'#16a34a',marginLeft:4}}>{careFlagged.length}</span>
+            </div>
+            {careFlagged.length>0&&<span style={{fontSize:12,color:'#dc2626',textDecoration:'underline dotted'}}>{careDrill?(isAr?'إخفاء ▲':'Hide ▲'):(isAr?'عرض ▼':'View ▼')}</span>}
           </div>
-          {careFlagged.length>0&&<span style={{fontSize:12,color:'#dc2626',textDecoration:'underline dotted'}}>{careDrill?(isAr?'إخفاء ▲':'Hide ▲'):(isAr?'عرض ▼':'View ▼')}</span>}
+          {careDrill&&careFlagged.length>0&&(
+            <div style={{marginTop:8,maxHeight:220,overflowY:'auto'}}>
+              <table className="tbl" style={{fontSize:12}}>
+                <thead><tr><th>{isAr?'الطالب':'Student'}</th><th>{isAr?'الصف':'Grade'}</th><th>{isAr?'الفصل':'Class'}</th><th>{isAr?'الملاحظة الطبية':'SEN / Medical Note'}</th></tr></thead>
+                <tbody>
+                  {careFlagged.map(s=>(
+                    <tr key={s.id} style={{cursor:'pointer'}} onClick={()=>setSelStu(s)}>
+                      <td style={{fontWeight:600}}>{s.name}</td>
+                      <td>G{s.grade}</td>
+                      <td>{s.classColor||'—'}</td>
+                      <td style={{color:'#7c2d12'}}>{s.notes}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-        {careDrill&&careFlagged.length>0&&(
-          <div style={{marginTop:10,maxHeight:240,overflowY:'auto'}}>
-            <table className="tbl" style={{fontSize:12}}>
-              <thead><tr><th>{isAr?'الطالب':'Student'}</th><th>{isAr?'الصف':'Grade'}</th><th>{isAr?'الفصل':'Class'}</th><th>{isAr?'الملاحظة':'Note'}</th></tr></thead>
-              <tbody>
-                {careFlagged.map(s=>(
-                  <tr key={s.id} style={{cursor:'pointer'}} onClick={()=>setSelStu(s)}>
-                    <td style={{fontWeight:600}}>{s.name}</td>
-                    <td>G{s.grade}</td>
-                    <td>{s.classColor||'—'}</td>
-                    <td style={{color:'#7c2d12'}}>{s.notes}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {/* 📋 Registration Notes — collapsible */}
+        <div style={{borderTop:'1px solid #dbeafe',paddingTop:10,marginTop:8}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:regFlagged.length?'pointer':'default',padding:'4px 0'}}
+            onClick={()=>regFlagged.length&&setRegDrill(v=>!v)}>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <span style={{fontSize:16}}>📋</span>
+              <div style={{fontSize:13,fontWeight:600,color:'#1e40af'}}>{isAr?'ملاحظات التسجيل':'Registration Notes'}</div>
+              <span style={{fontSize:20,fontWeight:800,color:regFlagged.length?'#1d4ed8':'#16a34a',marginLeft:4}}>{regFlagged.length}</span>
+            </div>
+            {regFlagged.length>0&&<span style={{fontSize:12,color:'#1d4ed8',textDecoration:'underline dotted'}}>{regDrill?(isAr?'إخفاء ▲':'Hide ▲'):(isAr?'عرض ▼':'View ▼')}</span>}
           </div>
-        )}
+          {regDrill&&regFlagged.length>0&&(
+            <div style={{marginTop:8,maxHeight:220,overflowY:'auto'}}>
+              <table className="tbl" style={{fontSize:12}}>
+                <thead><tr><th>{isAr?'الطالب':'Student'}</th><th>{isAr?'الصف':'Grade'}</th><th>{isAr?'الفصل':'Class'}</th><th>{isAr?'ملاحظة التسجيل':'Registration Note'}</th></tr></thead>
+                <tbody>
+                  {regFlagged.map(s=>(
+                    <tr key={s.id} style={{cursor:'pointer'}} onClick={()=>setSelStu(s)}>
+                      <td style={{fontWeight:600}}>{s.name}</td>
+                      <td>G{s.grade}</td>
+                      <td>{s.classColor||'—'}</td>
+                      <td style={{color:'#1e40af'}}>{s.regNote}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
 
       <h3 style={{margin:'4px 0 12px'}}>📌 {isAr?'نبض العمليات':'Operational Pulse'}</h3>
@@ -6188,7 +6223,7 @@ function Students({data,sv,up,user,houses,clsCols,lang,L}){
   const [waadImpM,setWaadImpM]=React.useState(false);const [waadImpPrev,setWaadImpPrev]=React.useState(null);const [waadImpSt,setWaadImpSt]=React.useState('');const [waadImpDrag,setWaadImpDrag]=React.useState(false);const [waadImpGender,setWaadImpGender]=React.useState('boys');
 
   const students=Object.values(data.students||{});
-  const hasNote=s=>!!(s.notes&&s.notes.trim());
+  const hasNote=s=>!!(s.notes&&s.notes.trim())||(s.regNote&&s.regNote.trim());
   const filtered=students.filter(s=>{
     const q=search.toLowerCase();
     return(!q||s.name?.toLowerCase().includes(q)||s.studentId?.toLowerCase().includes(q)||s.waadId?.toLowerCase().includes(q))
@@ -6232,7 +6267,7 @@ function Students({data,sv,up,user,houses,clsCols,lang,L}){
   };
 
   const doExport=()=>{
-    const rows=filtered.map(s=>{const h=houses.find(h=>h.id===s.house);return{'Name':s.name,'Student ID':s.studentId||'','Waad ID':s.waadId||'','Grade':s.grade,'Class':s.classColor||'','House':h?.name||'','Canvas':s.canvas||'','Parent Phone':s.parentPhone||'','Notes':s.notes||''};});
+    const rows=filtered.map(s=>{const h=houses.find(h=>h.id===s.house);return{'Name':s.name,'Student ID':s.studentId||'','Waad ID':s.waadId||'','Grade':s.grade,'Class':s.classColor||'','House':h?.name||'','Canvas':s.canvas||'','Parent Phone':s.parentPhone||'','SEN/Medical Note':s.notes||'','Registration Note':s.regNote||''};});
     const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Students');XLSX.writeFile(wb,'students.xlsx');
   };
 
@@ -6547,7 +6582,7 @@ function Students({data,sv,up,user,houses,clsCols,lang,L}){
         <div style={{fontSize:13,color:'#64748b',marginBottom:10}}>{filtered.length} students</div>
         <div style={{overflowX:'auto'}}>
           <table className="tbl">
-            <thead><tr><th className="noprint"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelAll} title="Select all filtered"/></th><th>#</th><th>Name</th><th>Student ID</th><th>Waad ID</th><th>Grade</th><th>Class</th><th>House</th><th>Canvas</th><th>📱 Parent Phone</th><th>Notes</th><th>Actions</th></tr></thead>
+            <thead><tr><th className="noprint"><input type="checkbox" checked={allFilteredSelected} onChange={toggleSelAll} title="Select all filtered"/></th><th>#</th><th>Name</th><th>Student ID</th><th>Waad ID</th><th>Grade</th><th>Class</th><th>House</th><th>Canvas</th><th>📱 Parent Phone</th><th>⚕️ {isAr?'طبي/SEN':'SEN/Medical'}</th><th>📋 {isAr?'التسجيل':'Registration'}</th><th>Actions</th></tr></thead>
             <tbody>
               {filtered.map((s,i)=>{const h=houses.find(h=>h.id===s.house);const todayStr=new Date().toISOString().split('T')[0];const attKey=`${todayStr}_G${s.grade}_${s.classColor}`;const rawTodayAtt=(data.attendance||{})[attKey]?.[s.id];const todayStatus=rawTodayAtt?normAtt(rawTodayAtt):null;return(
                 <tr key={s.id}>
@@ -6566,6 +6601,8 @@ function Students({data,sv,up,user,houses,clsCols,lang,L}){
                   </div>):'—'}</td>
                   <td style={{fontSize:11,maxWidth:200}}><div style={{display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
                     {s.notes?<span className="badge bo" title={s.notes} style={{cursor:'help'}}>⚕️ {s.notes.length>26?s.notes.slice(0,26)+'…':s.notes}</span>:'—'}
+                    </td><td>
+                    {s.regNote?<span className="badge bg" title={s.regNote} style={{cursor:'help',background:'#eff6ff',color:'#1d4ed8',border:'1px solid #bfdbfe'}}>📋 {s.regNote.length>26?s.regNote.slice(0,26)+'…':s.regNote}</span>:'—'}
                     {s.noteLink&&<a href={s.noteLink.startsWith('http')?s.noteLink:'https://'+s.noteLink} target="_blank" rel="noopener noreferrer" title="Open procedure / support link" style={{display:'inline-flex',alignItems:'center',gap:3,padding:'2px 7px',borderRadius:6,background:'#eff6ff',color:'#1d4ed8',border:'1px solid #bfdbfe',fontSize:11,fontWeight:600,textDecoration:'none',whiteSpace:'nowrap'}}>🔗 Procedure</a>}
                   </div></td>
                   <td><div style={{display:'flex',gap:4}}>
@@ -6839,7 +6876,8 @@ function StuModal({stu,houses,clsCols,onSave,onClose}){
           <div><label>Class Colour</label><select value={f.classColor} onChange={e=>u('classColor',e.target.value)}>{clsCols.map(c=><option key={c} value={c}>{c}</option>)}</select></div>
           <div><label>House</label><select value={f.house} onChange={e=>u('house',e.target.value)}>{houses.map(h=><option key={h.id} value={h.id}>{h.emoji} {h.name}</option>)}</select></div>
         </div>
-        <div className="fr"><div><label>⚕️ Notes (medical conditions, allergies, care needs, etc.)</label><textarea value={f.notes||''} onChange={e=>u('notes',e.target.value)} rows={2} placeholder="e.g. Autism — follow procedure link. Peanut allergy — carries EpiPen."/><div style={{fontSize:11,color:'#94a3b8',marginTop:4}}>Any student with a note here is automatically flagged on the Dashboard for staff awareness.</div></div></div>
+        <div className="fr"><div><label>⚕️ {isAr?'ملاحظة طبية / احتياجات خاصة':'SEN / Medical Note'}</label><textarea value={f.notes||''} onChange={e=>u('notes',e.target.value)} rows={2} placeholder={isAr?'مثال: حساسية الفول السوداني — يحمل قلم EpiPen. توحد — راجع إجراء الدعم.':'e.g. Autism — follow procedure link. Peanut allergy — carries EpiPen.'}/><div style={{fontSize:11,color:'#94a3b8',marginTop:4}}>{isAr?'أي طالب لديه ملاحظة هنا يظهر تلقائياً في لوحة البيانات للوعي.':'Any student with a note here is automatically flagged on the Dashboard for staff awareness.'}</div></div></div>
+        <div className="fr"><div><label>📋 {isAr?'ملاحظة التسجيل':'Registration Note'}</label><textarea value={f.regNote||''} onChange={e=>u('regNote',e.target.value)} rows={2} placeholder={isAr?'مثال: وثائق ناقصة، قيد مؤقت، ملاحظة إدارية...':'e.g. Missing documents, provisional enrolment, admin comment…'}/><div style={{fontSize:11,color:'#94a3b8',marginTop:4}}>{isAr?'تظهر في جدول الطلاب وبطاقة التسجيل على لوحة البيانات.':'Appears in student table and Registration Notes card on Dashboard.'}</div></div></div>
         <div className="fr"><div><label>🔗 Procedure / Support Link <span style={{fontWeight:400,color:'#94a3b8'}}>(optional — Google Doc, PDF, or any URL with the procedure staff should follow)</span></label><input value={f.noteLink||''} onChange={e=>u('noteLink',e.target.value)} placeholder="https://docs.google.com/..." dir="ltr"/></div></div>
         {!!f.needsReview&&(
           <div className="fr"><div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,padding:10}}>
@@ -7472,7 +7510,13 @@ function Attendance({data,sv,up,user,clsCols,lang,L}){
             {students.map((s,i)=>{const rawAtt=getAtt(s);const cur=normAtt(rawAtt);const uv=getUni(s);const sk=`${date}_G${s.grade}_${s.classColor}`;return(
               <tr key={s.id}>
                 <td style={{color:'#94a3b8'}}>{i+1}</td>
-                <td style={{fontWeight:600}}>{s.name}</td>
+                <td style={{fontWeight:600}}>
+                  {s.name}
+                  {(s.notes||s.regNote)&&<div style={{display:'flex',gap:4,marginTop:3,flexWrap:'wrap'}}>
+                    {s.notes&&<span title={s.notes} style={{display:'inline-flex',alignItems:'center',gap:3,fontSize:10,background:'#fff7ed',color:'#c2410c',border:'1px solid #fed7aa',borderRadius:10,padding:'1px 7px',cursor:'help',fontWeight:600}}>⚕️ {s.notes.length>30?s.notes.slice(0,30)+'…':s.notes}</span>}
+                    {s.regNote&&<span title={s.regNote} style={{display:'inline-flex',alignItems:'center',gap:3,fontSize:10,background:'#eff6ff',color:'#1d4ed8',border:'1px solid #bfdbfe',borderRadius:10,padding:'1px 7px',cursor:'help',fontWeight:600}}>📋 {s.regNote.length>30?s.regNote.slice(0,30)+'…':s.regNote}</span>}
+                  </div>}
+                </td>
                 <td style={{fontSize:11,color:'#64748b'}}>G{s.grade} {s.classColor}</td>
                 <td><div style={{display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}>
                   {ATT_STATUSES.map(st=><button key={st.v} className={`btn bxs ${cur===st.v?'btnp':'btng'}`} style={{fontWeight:cur===st.v?700:400}} onClick={()=>markOne(s,st.v)}>{isAr?st.label.ar:st.label.en}</button>)}
