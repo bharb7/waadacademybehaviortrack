@@ -4,9 +4,9 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>BehaviorTrack Pro</title>
-<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.23.10/babel.min.js"></script>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
@@ -6580,10 +6580,11 @@ function Students({data,sv,up,user,houses,clsCols,lang,L}){
                   </div>):'—'}</td>
                   <td style={{fontSize:11,maxWidth:200}}><div style={{display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
                     {s.notes?<span className="badge bo" title={s.notes} style={{cursor:'help'}}>⚕️ {s.notes.length>26?s.notes.slice(0,26)+'…':s.notes}</span>:'—'}
-                    </td><td>
-                    {s.regNote?<span className="badge bg" title={s.regNote} style={{cursor:'help',background:'#eff6ff',color:'#1d4ed8',border:'1px solid #bfdbfe'}}>📋 {s.regNote.length>26?s.regNote.slice(0,26)+'…':s.regNote}</span>:'—'}
                     {s.noteLink&&<a href={s.noteLink.startsWith('http')?s.noteLink:'https://'+s.noteLink} target="_blank" rel="noopener noreferrer" title="Open procedure / support link" style={{display:'inline-flex',alignItems:'center',gap:3,padding:'2px 7px',borderRadius:6,background:'#eff6ff',color:'#1d4ed8',border:'1px solid #bfdbfe',fontSize:11,fontWeight:600,textDecoration:'none',whiteSpace:'nowrap'}}>🔗 Procedure</a>}
                   </div></td>
+                  <td style={{fontSize:11,maxWidth:180}}>
+                    {s.regNote?<span className="badge bg" title={s.regNote} style={{cursor:'help',background:'#eff6ff',color:'#1d4ed8',border:'1px solid #bfdbfe'}}>📋 {s.regNote.length>26?s.regNote.slice(0,26)+'…':s.regNote}</span>:'—'}
+                  </td>
                   <td><div style={{display:'flex',gap:4}}>
                     <button className="btn bxs btng" onClick={()=>setEditS(s)}>✏️ Edit</button>
                     <button className="btn bxs btns" onClick={()=>setMoveIds([s.id])} title="Move to a different grade/class/house">🔀 Move</button>
