@@ -4,9 +4,9 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>BehaviorTrack Pro</title>
-<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.23.10/babel.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
@@ -2927,8 +2927,8 @@ function App(){
   const [dbSt,setDbSt]=React.useState('connecting');
   const [dbErr,setDbErr]=React.useState(null);
   const [user,setUser]=React.useState(null);
-  const [authChecked,setAuthChecked]=React.useState(false); // true once onAuthStateChanged has fired once
-  const [loginF,setLoginF]=React.useState({email:'',pass:''});
+  const [authChecked,setAuthChecked]=React.useState(false); // true once PIN login resolves
+  const [loginF,setLoginF]=React.useState({name:'',pin:''});
   const [notifP,setNotifP]=React.useState(false);
   const [dueN,setDueN]=React.useState([]);
   const [lang,setLang]=React.useState('en');
@@ -2962,25 +2962,32 @@ function App(){
     return()=>ref.off();
   },[]);
 
-  // ── Firebase Auth listener ────────────────────────────────────────────────
+  // ── PIN login helper (called from Login component) ──────────────────────
+  const handlePinLogin=React.useCallback(async(name,pin)=>{
+    // Ensure anonymous auth for RTDB rule compliance
+    if(!auth.currentUser){
+      try{ await auth.signInAnonymously(); }catch(e){ console.warn('anon auth failed',e); }
+    }
+    // Look up staff by name match
+    const staffSnap=await db.ref('/btpro/staff').once('value');
+    const teacherSnap=await db.ref('/btpro/teachers').once('value');
+    const staff=Object.values(staffSnap.val()||{});
+    const teachers=Object.values(teacherSnap.val()||{}).map(t=>({...t,role:t.role||'Teacher'}));
+    const all=[...staff,...DEF_STAFF.filter(d=>!staffSnap.val()||!staffSnap.val()[d.id]),...teachers];
+    const nm=name.trim().toLowerCase();
+    const match=all.find(u=>(u.name||'').trim().toLowerCase()===nm||(u.nameAr||'').trim()===name.trim());
+    if(!match){return 'Name not found. Contact your administrator.';}
+    const correctPin=(match.pin)||'btpro2025';
+    if(pin!==correctPin){return 'Incorrect PIN.';}
+    setUser(match);
+    setAuthChecked(true);
+    return null;
+  },[]);
+  // ── On mount: just mark auth as "checked" so we show the login screen ──
   React.useEffect(()=>{
-    const unsub=auth.onAuthStateChanged(async fbUser=>{
-      if(fbUser){
-        // Signed in — look up their profile in RTDB by the email they authenticated with
-        const profile=await lookupProfileByEmail(fbUser.email);
-        if(profile){
-          setUser(profile);
-        } else {
-          // Email exists in Firebase Auth but no matching RTDB profile — sign them back out
-          await auth.signOut();
-          setUser(null);
-        }
-      } else {
-        setUser(null);
-      }
-      setAuthChecked(true);
-    });
-    return()=>unsub();
+    // Ensure anonymous Firebase auth for RTDB rule compliance
+    auth.signInAnonymously().catch(()=>{});
+    setAuthChecked(true);
   },[]);
   // ──────────────────────────────────────────────────────────────────────────
 
@@ -2995,7 +3002,7 @@ function App(){
       setIdleWarning(false);
       clearTimeout(warnTimer);clearTimeout(logoutTimer);
       warnTimer=setTimeout(()=>setIdleWarning(true),WARN);
-      logoutTimer=setTimeout(()=>{auth.signOut();},TIMEOUT);
+      logoutTimer=setTimeout(()=>{setUser(null);},TIMEOUT);
     };
     const events=['mousemove','mousedown','keydown','touchstart','scroll','click'];
     events.forEach(e=>window.addEventListener(e,reset,{passive:true}));
@@ -3052,7 +3059,7 @@ function App(){
 
   // Show a neutral splash while Firebase Auth resolves (avoids login flicker)
   if(!authChecked) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'linear-gradient(135deg,#1a1a2e,#16213e)',flexDirection:'column',gap:16}}><div style={{fontSize:40}}>🏫</div><div style={{color:'#fff',fontSize:16,opacity:0.7}}>Loading…</div></div>;
-  if(!user) return <Login form={loginF} setForm={setLoginF} onLogin={()=>{}}/>;
+  if(!user) return <Login form={loginF} setForm={setLoginF} onLogin={handlePinLogin}/>;
 
   const unread=dueN.filter(n=>!n.dismissed).length;
   const NAV_ALL=[
@@ -3112,7 +3119,7 @@ function App(){
             </div>
           )))}
           <div style={{padding:'12px 16px'}}>
-            <button className="btn btng bsm" style={{width:'100%',color:'#fff',borderColor:'rgba(255,255,255,0.25)'}} onClick={()=>auth.signOut()}>{lang==='ar'?'↩ خروج':'↩ Log Out'}</button>
+            <button className="btn btng bsm" style={{width:'100%',color:'#fff',borderColor:'rgba(255,255,255,0.25)'}} onClick={()=>setUser(null)}>{lang==='ar'?'↩ خروج':'↩ Log Out'}</button>
           </div>
         </div>
       </div>
@@ -4193,35 +4200,15 @@ function TeacherTasks({data,sv,up,user,lang,L}){
 function Login({form,setForm,onLogin}){
   const [err,setErr]=React.useState('');
   const [loading,setLoading]=React.useState(false);
-  const [resetSent,setResetSent]=React.useState(false);
   const handle=async()=>{
-    const email=(form.email||'').trim();
-    const pass=form.pass||'';
-    if(!email){setErr('Enter your email address');return;}
-    if(!pass){setErr('Enter your password');return;}
+    const name=(form.name||'').trim();
+    const pin=(form.pin||'').trim();
+    if(!name){setErr('Enter your name');return;}
+    if(!pin){setErr('Enter your PIN');return;}
     setLoading(true);setErr('');
-    try{
-      await auth.signInWithEmailAndPassword(email,pass);
-      // onAuthStateChanged in App() will pick up the user — no need to do anything here
-    }catch(e){
-      let msg='Sign-in failed. Check your email and password.';
-      if(e.code==='auth/user-not-found'||e.code==='auth/invalid-credential')msg='No account found for this email. Contact your administrator.';
-      else if(e.code==='auth/wrong-password')msg='Incorrect password.';
-      else if(e.code==='auth/too-many-requests')msg='Too many attempts. Try again later or reset your password.';
-      else if(e.code==='auth/invalid-email')msg='Please enter a valid email address.';
-      setErr(msg);
-    }
+    const result=await onLogin(name,pin);
+    if(result){setErr(result);}
     setLoading(false);
-  };
-  const handleReset=async()=>{
-    const email=(form.email||'').trim();
-    if(!email){setErr('Enter your email address first, then click Forgot Password.');return;}
-    try{
-      await auth.sendPasswordResetEmail(email);
-      setResetSent(true);setErr('');
-    }catch(e){
-      setErr('Could not send reset email. Make sure the email address is correct.');
-    }
   };
   return (
     <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'linear-gradient(135deg,#1a1a2e,#16213e)'}}>
@@ -4231,31 +4218,17 @@ function Login({form,setForm,onLogin}){
           <div style={{fontSize:20,fontWeight:700}}>BehaviorTrack Pro</div>
           <div style={{fontSize:12,color:'#64748b',marginTop:3}}>School Behaviour Management · إدارة السلوك المدرسي</div>
         </div>
-        {resetSent?(
-          <div style={{textAlign:'center',padding:'20px 0'}}>
-            <div style={{fontSize:32,marginBottom:10}}>📧</div>
-            <div style={{fontWeight:600,marginBottom:6}}>Password reset email sent</div>
-            <div style={{fontSize:12,color:'#64748b',marginBottom:16}}>Check your inbox and follow the link to set a new password.</div>
-            <button className="btn btng" style={{width:'100%'}} onClick={()=>setResetSent(false)}>← Back to Sign In</button>
-          </div>
-        ):(
-          <>
-            <div style={{marginBottom:12}}>
-              <label style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>Email Address</label>
-              <input type="email" placeholder="you@waadacademy.edu.sa" value={form.email||''} onChange={e=>setForm(f=>({...f,email:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&handle()} autoComplete="email" style={{width:'100%'}}/>
-            </div>
-            <div style={{marginBottom:6}}>
-              <label style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>Password</label>
-              <input type="password" placeholder="" value={form.pass||''} onChange={e=>setForm(f=>({...f,pass:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&handle()} autoComplete="current-password" style={{width:'100%'}}/>
-            </div>
-            <div style={{textAlign:'right',marginBottom:14}}>
-              <button onClick={handleReset} style={{background:'none',border:'none',color:'#3b82f6',fontSize:12,cursor:'pointer',padding:0}}>Forgot password?</button>
-            </div>
-            {err&&<div style={{color:'#dc2626',fontSize:12,marginBottom:10,background:'#fef2f2',border:'1px solid #fecaca',borderRadius:6,padding:'6px 10px'}}>{err}</div>}
-            <button className="btn btnp" style={{width:'100%',opacity:loading?0.6:1}} onClick={handle} disabled={loading}>{loading?'Signing in…':'Sign In →'}</button>
-            <div style={{marginTop:16,fontSize:11,color:'#94a3b8',textAlign:'center',lineHeight:1.5}}>Your account is managed by your school administrator.<br/>Contact admin if you need access.</div>
-          </>
-        )}
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>Name / الاسم</label>
+          <input type="text" placeholder="Your full name" value={form.name||''} onChange={e=>setForm(f=>({...f,name:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&handle()} autoComplete="name" style={{width:'100%'}}/>
+        </div>
+        <div style={{marginBottom:14}}>
+          <label style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>PIN / كلمة المرور</label>
+          <input type="password" placeholder="" value={form.pin||''} onChange={e=>setForm(f=>({...f,pin:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&handle()} autoComplete="current-password" style={{width:'100%'}}/>
+        </div>
+        {err&&<div style={{color:'#dc2626',fontSize:12,marginBottom:10,background:'#fef2f2',border:'1px solid #fecaca',borderRadius:6,padding:'6px 10px'}}>{err}</div>}
+        <button className="btn btnp" style={{width:'100%',opacity:loading?0.6:1}} onClick={handle} disabled={loading}>{loading?'Signing in…':'Sign In →'}</button>
+        <div style={{marginTop:16,fontSize:11,color:'#94a3b8',textAlign:'center',lineHeight:1.5}}>Default PIN: btpro2025 · Set per-staff PINs in Settings.</div>
       </div>
     </div>
   );
