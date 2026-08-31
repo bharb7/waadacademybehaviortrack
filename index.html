@@ -612,86 +612,93 @@ const PT_CLASS_HDR_LIN = /Waad\s+Academy[-\s]+Boys\s*[-–]\s*(\d+\w+)/i;
 const DAYS_LIN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'];
 const fmtT = t => { const p = t.split(':'); return `${p[0].padStart(2, '0')}:${p[1]}`; };
 // Parse one PDF page of items (with x,y coords) into schedule entries
-// Works column-by-column: detect day column X-bounds from header items, then
-// parse each column's text top-to-bottom as Subject→Teacher→[Location]→Start→End
+// Y-clustering approach: groups nearby Y items into cells, each cell = one entry
+// This cleanly separates distinct time slots and prevents cross-cell bleeding
 function parsePrimeTimetablePage(pageItems, className) {
     const PT_DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday'];
     const DAY_CODE = {Sunday:'Sun',Monday:'Mon',Tuesday:'Tue',Wednesday:'Wed',Thursday:'Thu'};
     const TIME_RE = /^\d{1,2}:\d{2}$/;
     const SKIP = new Set(['P1','P2','P3','P4','P5','P6','Break','Break 2','Prayer',
         'Sunday','Monday','Tuesday','Wednesday','Thursday','2025-2026','2026-2027','Co']);
-    // Find day header items to establish column X-bounds
+    // Teacher = "Initial. Lastname" (two-part name with dot) — NOT single words
+    const TEACHER_RE = /^[A-Z][A-Za-z]*\.\s*[A-Z][a-z]{2,}/;
+    const isTeacherLike = s => TEACHER_RE.test(s.trim());
+    const isLocationLike = s => /^(ICT Lab|Lab\d*|Court|Library|Options|\d+\s*(Blue|Green|Orange|Red|Yellow))/i.test(s.trim());
+
+    // Detect day column X-bounds from page header
     const maxY = Math.max(...pageItems.map(it => it.y));
     const headerZone = pageItems.filter(it => it.y > maxY - 80);
     const dayItems = PT_DAYS
         .map(d => { const h = headerZone.find(it => it.str === d); return h ? {day:d, x:h.x} : null; })
         .filter(Boolean).sort((a,b) => a.x - b.x);
-    if (dayItems.length < 3) return []; // not a timetable page
-    // Build column X-ranges
+    if (dayItems.length < 3) return [];
     const cols = dayItems.map((dh, i) => {
         const prev = i > 0 ? dayItems[i-1].x : 0;
         const next = i+1 < dayItems.length ? dayItems[i+1].x : 9999;
         return { day: DAY_CODE[dh.day], lo: i===0 ? 0 : (prev+dh.x)/2, hi: (dh.x+next)/2 };
     });
     const getCol = x => cols.find(c => x >= c.lo && x < c.hi);
-    // Group content items by column, sorted top-to-bottom within each column
+
+    // Assign items to day columns
     const byCol = {};
     cols.forEach(c => { byCol[c.day] = []; });
     pageItems.forEach(it => {
-        if (it.y > maxY - 80) return; // skip header
-        if (SKIP.has(it.str)) return;
-        if (!it.str.trim()) return;
+        if (it.y > maxY - 80) return;
+        if (SKIP.has(it.str) || !it.str.trim()) return;
         const col = getCol(it.x);
-        if (!col) return;
-        byCol[col.day].push(it);
+        if (col) byCol[col.day].push(it);
     });
-    // Teacher name pattern: "A. Lastname" or single capitalised name like "Hussam"
-    const TEACHER_RE = /^[A-Z][A-Za-z.]*\.\s*[A-Z][a-z]{2,}|^[A-Z][a-z]{3,}$/;
-    const isTeacherLike = s => TEACHER_RE.test(s.trim());
-    const isLocationLike = s => /^(ICT Lab|Lab\d*|Court|Library|Options|\d+\s*(Blue|Green|Orange|Red|Yellow))/i.test(s.trim());
-    // For each column, sort top→bottom (y DESC) then parse Subject→Teacher→[Loc]→Start→End
+
+    const CELL_GAP = 18; // Y-gap threshold between distinct schedule cells
     const entries = [];
+
     cols.forEach(({day}) => {
         const items = byCol[day].sort((a,b) => b.y - a.y);
-        const lines = items.map(it => it.str);
-        let i = 0;
-        while (i < lines.length) {
-            const subj = lines[i];
-            // Subject must not be a time, skip token, or look like a teacher name
-            if (TIME_RE.test(subj) || SKIP.has(subj) || isTeacherLike(subj)) { i++; continue; }
-            let j = i + 1;
-            if (j >= lines.length) { i++; continue; }
-            const tRaw = lines[j];
-            if (TIME_RE.test(tRaw) || SKIP.has(tRaw)) { i++; continue; }
-            const teacher = tRaw.replace(/([A-Za-z])\.([A-Za-z])/g,'$1. $2').trim();
-            if (teacher === 'Co') { i = j+1; continue; }
-            j++;
-            if (j >= lines.length) { i++; continue; }
-            let loc = '', start = '', end = '';
-            // Location: accept only known room patterns; skip if it looks like another teacher name
-            if (!TIME_RE.test(lines[j]) && !SKIP.has(lines[j])) {
-                if (isLocationLike(lines[j]) || !isTeacherLike(lines[j])) {
-                    loc = lines[j]; j++;
-                }
+        if (!items.length) return;
+
+        // Split into cells by Y-gap
+        const cells = [];
+        let cur = [items[0]];
+        for (let k = 1; k < items.length; k++) {
+            if (cur[cur.length-1].y - items[k].y > CELL_GAP) { cells.push(cur); cur = [items[k]]; }
+            else cur.push(items[k]);
+        }
+        cells.push(cur);
+
+        cells.forEach(cell => {
+            // Separate times from text tokens
+            const times = cell.filter(it => TIME_RE.test(it.str)).map(it => it.str);
+            const texts = cell.filter(it => !TIME_RE.test(it.str) && !SKIP.has(it.str))
+                              .map(it => it.str.trim()).filter(Boolean);
+
+            // Must have 2 distinct times and at least 2 text tokens (subject + teacher)
+            if (times.length < 2 || texts.length < 2) return;
+            const start = fmtT(times[0]), end = fmtT(times[times.length-1]);
+            if (start === end) return; // zero-duration = parser misread, skip
+
+            // Positional: texts[0]=subject, texts[1]=teacher, texts[2]=optional location
+            const subj = texts[0];
+            const teacher = texts[1].replace(/([A-Za-z])\.([A-Za-z])/g,'$1. $2').trim();
+            if (!teacher || teacher === 'Co') return;
+
+            // Optional location: accept known room patterns or non-teacher strings
+            // Reject if it looks like another teacher name bleeding in from adjacent column
+            let loc = '';
+            if (texts.length > 2) {
+                const cand = texts[2];
+                if (isLocationLike(cand) || !isTeacherLike(cand)) loc = cand;
             }
-            if (j >= lines.length) { i++; continue; }
-            if (!TIME_RE.test(lines[j])) { i++; continue; }
-            start = fmtT(lines[j]); j++;
-            if (j >= lines.length) { i++; continue; }
-            if (!TIME_RE.test(lines[j])) { i++; continue; }
-            end = fmtT(lines[j]);
-            // Reject zero-duration entries (start == end means parser misread times)
-            if (start === end) { i++; continue; }
+
             const finalLoc = loc || ptClassLabel(className);
             entries.push({
                 rawLine: `${subj} | ${teacher} | ${day} | ${start}-${end} | ${finalLoc}`,
                 teacher, day, start, end, subject: subj, location: finalLoc, _class: className
             });
-            i = j + 1;
-        }
+        });
     });
     return entries;
 }
+
 // ── Supervision/Break Duty PDF parser ──────────────────────────────────────
 // Handles Waad Academy "Break Supervision" table PDFs (both G4-6 and G7-12)
 // Robust text-line approach: groups items by Y into lines, then parses structure
