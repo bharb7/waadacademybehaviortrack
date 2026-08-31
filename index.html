@@ -11400,7 +11400,6 @@ function TDSchedule({ data, teachers, isAr }) {
                             className: "btn bsm",
                             style: {background:'#f59e0b',color:'#fff',border:'none',fontSize:12},
                             onClick: () => {
-                                // Hardcoded G7-12 Break Supervision schedule (10:00-10:30)
                                 const SUPERVISION = [
                                     {teacher:'I. Asghar', day:'Sun', loc:'Autorim'},
                                     {teacher:'M. Akhtar', day:'Sun', loc:'Autorim'},
@@ -11431,21 +11430,37 @@ function TDSchedule({ data, teachers, isAr }) {
                                     {teacher:'S. Liaquat', day:'Thu', loc:'Corridor'},
                                     {teacher:'S. Shah', day:'Thu', loc:'Canteen'},
                                 ];
+                                // Extended resolve: tries resolveTeacher first, then last-name-only fallback
+                                const resolveSupervision = name => {
+                                    const direct = resolveTeacher(name);
+                                    if (direct) return direct;
+                                    // last-name only fallback (e.g. "Asghar" matches "I. Asghar")
+                                    const lastName = name.trim().split(/\s+/).pop().replace(/\./g,'').toLowerCase();
+                                    if (lastName.length < 3) return null;
+                                    return teachers.find(t => {
+                                        const tParts = t.name.trim().toLowerCase().split(/\s+/);
+                                        return tParts.some(p => p.replace(/\./g,'') === lastName);
+                                    });
+                                };
                                 const upd = {};
-                                let added = 0, skipped = 0;
+                                let added = 0, dupes = 0;
+                                const unmatched = [];
                                 SUPERVISION.forEach(s => {
-                                    const matched = resolveTeacher(s.teacher);
-                                    if (!matched) { skipped++; return; }
+                                    const matched = resolveSupervision(s.teacher);
+                                    if (!matched) { unmatched.push(s.teacher); return; }
                                     const tid = matched.id;
                                     const existing = Object.values(sched[tid]||{});
                                     const dup = existing.find(e => e.day===s.day && e.start==='10:00' && e.end==='10:30' && e.location===s.loc);
-                                    if (dup) { skipped++; return; }
+                                    if (dup) { dupes++; return; }
                                     const id = uid();
                                     upd[`/btpro/teacherSchedule/${tid}/${id}`] = {id, day:s.day, start:'10:00', end:'10:30', type:'duty', label:`Break Supervision - ${s.loc}`, location:s.loc};
                                     added++;
                                 });
                                 if (Object.keys(upd).length > 0) db.ref('/').update(upd);
-                                alert(`🛡 Supervision imported:\n• ${added} duty entries added\n• ${skipped} skipped (no match or duplicate)\nNote: Unmatched teachers need to be added to staff first.`);
+                                const uniqueUnmatched = [...new Set(unmatched)];
+                                let msg = `🛡 Supervision import:\n• ${added} duty entries added\n• ${dupes} already existed (skipped)`;
+                                if (uniqueUnmatched.length) msg += `\n\n⚠️ Could not match ${uniqueUnmatched.length} teacher(s):\n${uniqueUnmatched.join(', ')}\n\nCheck their names in Teacher Settings match exactly.`;
+                                alert(msg);
                             }
                         }, isAr ? '🛡 استيراد إشراف الفسحة' : '🛡 Import Break Supervision'),
                         React.createElement(SmartImportButton, { label: isAr ? 'استيراد الجدول' : 'Import Schedule (PDF/Excel)', isAr: isAr, accept: ".xlsx,.xls,.csv,.docx,.pdf", note: isAr ? 'PDF من PrimeTimetable: يتم التعرف عليه تلقائياً — تُستخرج الصفوف والمواد وتُضاف للمعلمين تلقائياً. عند إعادة الاستيراد يتم الكشف عن التعارضات والتكرارات.' : 'PrimeTimetable PDF: auto-detected — grades & subjects written to teacher profiles. Re-importing flags conflicts and duplicates automatically.', columns: [isAr ? 'المعلم' : 'Teacher', isAr ? 'اليوم' : 'Day', isAr ? 'من' : 'Start', isAr ? 'إلى' : 'End', isAr ? 'النوع' : 'Type', isAr ? 'الوصف' : 'Label', isAr ? 'الموقع' : 'Location'], parseRow: raw => {
