@@ -611,93 +611,74 @@ const PT_DAY_HEADER_LIN = /^Sunday Monday/;
 const PT_CLASS_HDR_LIN = /Waad\s+Academy[-\s]+Boys\s*[-–]\s*(\d+\w+)/i;
 const DAYS_LIN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'];
 const fmtT = t => { const p = t.split(':'); return `${p[0].padStart(2, '0')}:${p[1]}`; };
-function parsePrimeTimetableLinear(allText) {
-    // Split full PDF text into per-class sections
-    const sections = allText.split(/(?=Waad\s+Academy[-\s]+Boys\s*[-–]\s*\d+)/i).filter(s => s.trim());
-    const allEntries = [];
-    sections.forEach(section => {
-        const lines = section.split('\n').map(l => l.trim()).filter(l => l);
-        // Extract class name from first line
-        const hdrM = PT_CLASS_HDR_LIN.exec(lines[0] || '');
-        if (!hdrM)
-            return;
-        const className = hdrM[1]; // e.g. "4B", "7G"
-        // Parse entries: Subject \n Teacher \n [Location] \n StartTime \n EndTime
-        const occCount = {}; // key=(teacher+subject) → count of occurrences so far (for day assignment)
+// Parse one PDF page of items (with x,y coords) into schedule entries
+// Works column-by-column: detect day column X-bounds from header items, then
+// parse each column's text top-to-bottom as Subject→Teacher→[Location]→Start→End
+function parsePrimeTimetablePage(pageItems, className) {
+    const PT_DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday'];
+    const DAY_CODE = {Sunday:'Sun',Monday:'Mon',Tuesday:'Tue',Wednesday:'Wed',Thursday:'Thu'};
+    const TIME_RE = /^\d{1,2}:\d{2}$/;
+    const SKIP = new Set(['P1','P2','P3','P4','P5','P6','Break','Break 2','Prayer',
+        'Sunday','Monday','Tuesday','Wednesday','Thursday','2025-2026','2026-2027','Co']);
+    // Find day header items to establish column X-bounds
+    const maxY = Math.max(...pageItems.map(it => it.y));
+    const headerZone = pageItems.filter(it => it.y > maxY - 80);
+    const dayItems = PT_DAYS
+        .map(d => { const h = headerZone.find(it => it.str === d); return h ? {day:d, x:h.x} : null; })
+        .filter(Boolean).sort((a,b) => a.x - b.x);
+    if (dayItems.length < 3) return []; // not a timetable page
+    // Build column X-ranges
+    const cols = dayItems.map((dh, i) => {
+        const prev = i > 0 ? dayItems[i-1].x : 0;
+        const next = i+1 < dayItems.length ? dayItems[i+1].x : 9999;
+        return { day: DAY_CODE[dh.day], lo: i===0 ? 0 : (prev+dh.x)/2, hi: (dh.x+next)/2 };
+    });
+    const getCol = x => cols.find(c => x >= c.lo && x < c.hi);
+    // Group content items by column, sorted top-to-bottom within each column
+    const byCol = {};
+    cols.forEach(c => { byCol[c.day] = []; });
+    pageItems.forEach(it => {
+        if (it.y > maxY - 80) return; // skip header
+        if (SKIP.has(it.str)) return;
+        if (!it.str.trim()) return;
+        const col = getCol(it.x);
+        if (!col) return;
+        byCol[col.day].push(it);
+    });
+    // For each column, sort top→bottom (y DESC) then parse Subject→Teacher→[Loc]→Start→End
+    const entries = [];
+    cols.forEach(({day}) => {
+        const items = byCol[day].sort((a,b) => b.y - a.y);
+        const lines = items.map(it => it.str);
         let i = 0;
         while (i < lines.length) {
-            const line = lines[i];
-            // Skip noise
-            if (PT_SKIP_LIN.has(line) || PT_DAY_HEADER_LIN.test(line) || PT_TIME_RE_LIN.test(line) || PT_CLASS_HDR_LIN.test(line)) {
-                i++;
-                continue;
-            }
-            // Potential subject line — next must be a teacher name (not a time, not skip)
-            const subject = line;
+            const subj = lines[i];
+            if (TIME_RE.test(subj)) { i++; continue; }
             let j = i + 1;
-            if (j >= lines.length) {
-                i++;
-                continue;
-            }
-            const teacherLine = lines[j];
-            if (PT_SKIP_LIN.has(teacherLine) || PT_TIME_RE_LIN.test(teacherLine) || PT_DAY_HEADER_LIN.test(teacherLine)) {
-                i++;
-                continue;
-            }
-            // Normalize teacher name: "M.Ramadan" → "M. Ramadan"
-            const teacher = teacherLine.replace(/([A-Za-z])\.([A-Za-z])/g, '$1. $2').trim();
+            if (j >= lines.length) { i++; continue; }
+            const tRaw = lines[j];
+            if (TIME_RE.test(tRaw) || SKIP.has(tRaw)) { i++; continue; }
+            const teacher = tRaw.replace(/([A-Za-z])\.([A-Za-z])/g,'$1. $2').trim();
+            if (teacher === 'Co') { i = j+1; continue; }
             j++;
-            if (j >= lines.length) {
-                i++;
-                continue;
-            }
-            // Optional location (not a time)
-            let location = '';
-            let startLine = '';
-            if (!PT_TIME_RE_LIN.test(lines[j]) && !PT_SKIP_LIN.has(lines[j]) && !PT_CLASS_HDR_LIN.test(lines[j])) {
-                location = lines[j];
-                j++;
-            }
-            if (j >= lines.length) {
-                i++;
-                continue;
-            }
-            startLine = lines[j];
-            if (!PT_TIME_RE_LIN.test(startLine)) {
-                i++;
-                continue;
-            }
-            j++;
-            if (j >= lines.length) {
-                i++;
-                continue;
-            }
-            const endLine = lines[j];
-            if (!PT_TIME_RE_LIN.test(endLine)) {
-                i++;
-                continue;
-            }
-            // Valid entry — assign day by occurrence order
-            const key = teacher + '||' + subject;
-            const occ = occCount[key] || 0;
-            const day = DAYS_LIN[occ] || 'Thu';
-            occCount[key] = occ + 1;
-            // Skip "Co" (co-teacher placeholder)
-            if (teacher === 'Co') {
-                i = j + 1;
-                continue;
-            }
-            const finalLoc = location || ptClassLabel(className);
-            allEntries.push({
-                rawLine: `${subject} | ${teacher} | ${day} | ${fmtT(startLine)}-${fmtT(endLine)} | ${finalLoc}`,
-                teacher, day,
-                start: fmtT(startLine), end: fmtT(endLine),
-                subject, location: finalLoc, _class: className
+            if (j >= lines.length) { i++; continue; }
+            let loc = '', start = '', end = '';
+            if (!TIME_RE.test(lines[j]) && !SKIP.has(lines[j])) { loc = lines[j]; j++; }
+            if (j >= lines.length) { i++; continue; }
+            if (!TIME_RE.test(lines[j])) { i++; continue; }
+            start = fmtT(lines[j]); j++;
+            if (j >= lines.length) { i++; continue; }
+            if (!TIME_RE.test(lines[j])) { i++; continue; }
+            end = fmtT(lines[j]);
+            const finalLoc = loc || ptClassLabel(className);
+            entries.push({
+                rawLine: `${subj} | ${teacher} | ${day} | ${start}-${end} | ${finalLoc}`,
+                teacher, day, start, end, subject: subj, location: finalLoc, _class: className
             });
             i = j + 1;
         }
     });
-    return allEntries;
+    return entries;
 }
 // Reads a PDF timetable/schedule and produces structured rows for the schedule import modal
 const readPdfRows = file => new Promise((resolve, reject) => {
@@ -709,39 +690,53 @@ const readPdfRows = file => new Promise((resolve, reject) => {
                 return;
             }
             const pdf = await pdfjsLib.getDocument({ data: e.target.result }).promise;
-            // Collect all page text linearly (preserving reading order)
-            let fullText = '';
-            for (let p = 1; p <= pdf.numPages; p++) {
-                const page = await pdf.getPage(p);
-                const content = await page.getTextContent();
-                // Sort items by y DESC (top→bottom), then x ASC (left→right) to get reading order
-                const items = content.items
-                    .filter(it => it.str && it.str.trim())
-                    .map(it => ({ str: it.str.trim(), x: Math.round(it.transform[4]), y: Math.round(it.transform[5]) }))
-                    .sort((a, b) => b.y - a.y || a.x - b.x);
-                fullText += items.map(it => it.str).join('\n') + '\n';
-            }
-            // Detect Waad Academy PrimeTimetable PDF
-            const isWaad = /Waad\s+Academy.*Boys/i.test(fullText);
+            // Check first page for Waad Academy timetable
+            const firstPage = await pdf.getPage(1);
+            const firstContent = await firstPage.getTextContent();
+            const firstText = firstContent.items.map(it => it.str).join(' ');
+            const isWaad = /Waad\s+Academy.*Boys/i.test(firstText);
             if (isWaad) {
-                const entries = parsePrimeTimetableLinear(fullText);
-                resolve(entries);
+                // Column-based parser: process each page independently
+                const allEntries = [];
+                for (let p = 1; p <= pdf.numPages; p++) {
+                    const page = await pdf.getPage(p);
+                    const content = await page.getTextContent();
+                    const items = content.items
+                        .filter(it => it.str && it.str.trim())
+                        .map(it => ({str:it.str.trim(), x:Math.round(it.transform[4]), y:Math.round(it.transform[5])}));
+                    // Extract class name from page title (highest Y items)
+                    const maxY = Math.max(...items.map(it => it.y));
+                    const titleStr = items.filter(it => it.y > maxY-60).map(it => it.str).join(' ');
+                    const clsM = titleStr.match(/\b(\d+[A-Z])\b/);
+                    const className = clsM ? clsM[1] : 'Unknown';
+                    const pageEntries = parsePrimeTimetablePage(items, className);
+                    pageEntries.forEach(e => allEntries.push(e));
+                }
+                resolve(allEntries);
                 return;
             }
             // Fallback: line-based extraction for generic PDFs
             const rows = [];
-            const lines = fullText.split('\n').filter(l => l.trim());
-            lines.forEach(line => {
-                const parts = line.split(/\t|\s{2,}|\||(?:\s-\s)|,/).map(s => s.trim()).filter(Boolean);
-                const obj = { rawLine: line };
-                parts.forEach((part, idx) => { obj['col' + (idx + 1)] = part; });
-                rows.push(obj);
-            });
+            for (let p = 1; p <= pdf.numPages; p++) {
+                const page = await pdf.getPage(p);
+                const content = await page.getTextContent();
+                const items = content.items
+                    .filter(it => it.str && it.str.trim())
+                    .map(it => ({str:it.str.trim(), x:Math.round(it.transform[4]), y:Math.round(it.transform[5])}))
+                    .sort((a,b) => b.y - a.y || a.x - b.x);
+                const lineMap = {};
+                items.forEach(it => { const y=Math.round(it.y); (lineMap[y]=lineMap[y]||[]).push(it.str); });
+                Object.keys(lineMap).map(Number).sort((a,b)=>b-a).forEach(y => {
+                    const line = lineMap[y].join(' ').trim();
+                    if (!line) return;
+                    const parts = line.split(/\t|\s{2,}|\||(?:\s-\s)|,/).map(s=>s.trim()).filter(Boolean);
+                    const obj = {rawLine:line}; parts.forEach((part,idx)=>{obj['col'+(idx+1)]=part;});
+                    rows.push(obj);
+                });
+            }
             resolve(rows);
         }
-        catch (err) {
-            reject(err);
-        }
+        catch (err) { reject(err); }
     };
     reader.onerror = () => reject(new Error('Could not read file'));
     reader.readAsArrayBuffer(file);
@@ -11401,6 +11396,58 @@ function TDSchedule({ data, teachers, isAr }) {
                             editingId ? '✏️' : '➕',
                             " ",
                             editingId ? (isAr ? 'تعديل الحصة/المناوبة' : 'Edit Schedule Entry') : (isAr ? 'إضافة إلى الجدول' : 'Add Schedule Entry')),
+                        React.createElement("button", {
+                            className: "btn bsm",
+                            style: {background:'#f59e0b',color:'#fff',border:'none',fontSize:12},
+                            onClick: () => {
+                                // Hardcoded G7-12 Break Supervision schedule (10:00-10:30)
+                                const SUPERVISION = [
+                                    {teacher:'I. Asghar', day:'Sun', loc:'Autorim'},
+                                    {teacher:'M. Akhtar', day:'Sun', loc:'Autorim'},
+                                    {teacher:'O. Abdouni', day:'Sun', loc:'Corridor'},
+                                    {teacher:'S. Alkarim', day:'Sun', loc:'Corridor'},
+                                    {teacher:'S. Najah', day:'Sun', loc:'Canteen'},
+                                    {teacher:'Y. Zahreddine', day:'Sun', loc:'Canteen'},
+                                    {teacher:'A. Hussein', day:'Mon', loc:'Autorim'},
+                                    {teacher:'Hussam', day:'Mon', loc:'Autorim'},
+                                    {teacher:'J. Golandaz', day:'Mon', loc:'Autorim'},
+                                    {teacher:'M. Lukie', day:'Mon', loc:'Corridor'},
+                                    {teacher:'J. Golandaz', day:'Mon', loc:'Corridor'},
+                                    {teacher:'M. Zafar', day:'Mon', loc:'Canteen'},
+                                    {teacher:'A. Almaghrabi', day:'Tue', loc:'Autorim'},
+                                    {teacher:'A. Khalil', day:'Tue', loc:'Autorim'},
+                                    {teacher:'M. Ramadan', day:'Tue', loc:'Corridor'},
+                                    {teacher:'I. Alqurashi', day:'Tue', loc:'Corridor'},
+                                    {teacher:'N. Malik', day:'Tue', loc:'Canteen'},
+                                    {teacher:'S. Siddiqui', day:'Tue', loc:'Canteen'},
+                                    {teacher:'M. Saleh', day:'Wed', loc:'Autorim'},
+                                    {teacher:'A. Kiwan', day:'Wed', loc:'Autorim'},
+                                    {teacher:'A. Saleh', day:'Wed', loc:'Corridor'},
+                                    {teacher:'M. Ismail', day:'Wed', loc:'Corridor'},
+                                    {teacher:'M. Korkomaz', day:'Wed', loc:'Canteen'},
+                                    {teacher:'A. Alghamdi', day:'Thu', loc:'Autorim'},
+                                    {teacher:'A. Griss', day:'Thu', loc:'Autorim'},
+                                    {teacher:'M. Moe', day:'Thu', loc:'Corridor'},
+                                    {teacher:'S. Liaquat', day:'Thu', loc:'Corridor'},
+                                    {teacher:'S. Shah', day:'Thu', loc:'Canteen'},
+                                ];
+                                const upd = {};
+                                let added = 0, skipped = 0;
+                                SUPERVISION.forEach(s => {
+                                    const matched = resolveTeacher(s.teacher);
+                                    if (!matched) { skipped++; return; }
+                                    const tid = matched.id;
+                                    const existing = Object.values(sched[tid]||{});
+                                    const dup = existing.find(e => e.day===s.day && e.start==='10:00' && e.end==='10:30' && e.location===s.loc);
+                                    if (dup) { skipped++; return; }
+                                    const id = uid();
+                                    upd[`/btpro/teacherSchedule/${tid}/${id}`] = {id, day:s.day, start:'10:00', end:'10:30', type:'duty', label:`Break Supervision - ${s.loc}`, location:s.loc};
+                                    added++;
+                                });
+                                if (Object.keys(upd).length > 0) db.ref('/').update(upd);
+                                alert(`🛡 Supervision imported:\n• ${added} duty entries added\n• ${skipped} skipped (no match or duplicate)\nNote: Unmatched teachers need to be added to staff first.`);
+                            }
+                        }, isAr ? '🛡 استيراد إشراف الفسحة' : '🛡 Import Break Supervision'),
                         React.createElement(SmartImportButton, { label: isAr ? 'استيراد الجدول' : 'Import Schedule (PDF/Excel)', isAr: isAr, accept: ".xlsx,.xls,.csv,.docx,.pdf", note: isAr ? 'PDF من PrimeTimetable: يتم التعرف عليه تلقائياً — تُستخرج الصفوف والمواد وتُضاف للمعلمين تلقائياً. عند إعادة الاستيراد يتم الكشف عن التعارضات والتكرارات.' : 'PrimeTimetable PDF: auto-detected — grades & subjects written to teacher profiles. Re-importing flags conflicts and duplicates automatically.', columns: [isAr ? 'المعلم' : 'Teacher', isAr ? 'اليوم' : 'Day', isAr ? 'من' : 'Start', isAr ? 'إلى' : 'End', isAr ? 'النوع' : 'Type', isAr ? 'الوصف' : 'Label', isAr ? 'الموقع' : 'Location'], parseRow: raw => {
                                 const teacherName = pickField(raw, ['teacher', 'teacher name', 'name', 'معلم', 'اسم المعلم', 'المعلم']);
                                 const dayRaw = pickField(raw, ['day', 'يوم', 'اليوم']);
