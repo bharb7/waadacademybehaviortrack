@@ -682,99 +682,125 @@ function parsePrimeTimetablePage(pageItems, className) {
 }
 // ── Supervision/Break Duty PDF parser ──────────────────────────────────────
 // Handles Waad Academy "Break Supervision" table PDFs (both G4-6 and G7-12)
-// Table format: Day | Autorim | Corridor | Canteen
-// Teachers separated by " + " or "+"
+// Robust text-line approach: groups items by Y into lines, then parses structure
 function parseSupervisionPdf(pageItemsAllPages) {
-    const DAYS_MAP = {
-        'sunday':'Sun','الأحد':'Sun','احد':'Sun',
-        'monday':'Mon','الاثنين':'Mon','الإثنين':'Mon',
-        'tuesday':'Tue','الثلاثاء':'Tue',
-        'wednesday':'Wed','الأربعاء':'Wed','الاربعاء':'Wed',
-        'thursday':'Thu','الخميس':'Thu',
+    const DAY_LOOKUP = {
+        sunday:'Sun', '(sunday)':'Sun', 'الأحد':'Sun', 'احد':'Sun',
+        monday:'Mon', '(monday)':'Mon', 'الاثنين':'Mon', 'الإثنين':'Mon',
+        tuesday:'Tue', '(tuesday)':'Tue', 'الثلاثاء':'Tue',
+        wednesday:'Wed', '(wednesday)':'Wed', 'الأربعاء':'Wed', 'الاربعاء':'Wed',
+        thursday:'Thu', '(thursday)':'Thu', 'الخميس':'Thu',
     };
-    const ZONES = ['Autorim','Corridor','Canteen'];
-    const ZONE_KEYWORDS = {
-        autorim:'Autorim', ممرات:'Corridor', corridor:'Corridor',
-        مطعم:'Canteen', canteen:'Canteen'
+    const isDayToken = s => {
+        const k = s.trim().toLowerCase().replace(/[()]/g,'').trim();
+        return !!(DAY_LOOKUP[k] || DAY_LOOKUP[s.trim().toLowerCase()] || DAY_LOOKUP[s.trim()]);
     };
-    // Detect break time from title: "7-12" → 10:00-10:30, "4-6" → 11:25-11:40
+    const getDayCode = s => {
+        const k = s.trim().toLowerCase().replace(/[()]/g,'').trim();
+        return DAY_LOOKUP[k] || DAY_LOOKUP[s.trim().toLowerCase()] || DAY_LOOKUP[s.trim()];
+    };
     const allText = pageItemsAllPages.map(it=>it.str).join(' ');
-    const is712 = /7-12|٧.*١٢/.test(allText);
-    const is46  = /4-6|٤.*٦/.test(allText);
+    const is46 = /4-6/.test(allText);
     const breakStart = is46 ? '11:25' : '10:00';
     const breakEnd   = is46 ? '11:40' : '10:30';
     const phase      = is46 ? 'G4-6' : 'G7-12';
 
-    // Sort all items top→bottom, left→right
-    const items = pageItemsAllPages.sort((a,b)=>b.y-a.y||a.x-b.x);
-
-    // Find zone header X positions from keywords
-    const zoneHeaders = [];
-    items.forEach(it => {
-        const kl = it.str.toLowerCase().replace(/[()]/g,'').trim();
-        if(ZONE_KEYWORDS[kl]) zoneHeaders.push({zone:ZONE_KEYWORDS[kl], x:it.x, y:it.y});
+    // Group items into text lines by Y coordinate (within ±4px tolerance)
+    const lineMap = {};
+    pageItemsAllPages.forEach(it => {
+        const yr = Math.round(it.y / 4) * 4; // bucket to nearest 4px
+        if (!lineMap[yr]) lineMap[yr] = [];
+        lineMap[yr].push(it);
     });
-    // Deduplicate zones (keep one per zone type)
-    const uniqueZones = {};
-    zoneHeaders.forEach(zh => { if(!uniqueZones[zh.zone]) uniqueZones[zh.zone]=zh; });
-    const zoneCols = Object.values(uniqueZones).sort((a,b)=>a.x-b.x);
+    // Sort lines top→bottom (descending Y in pdf.js)
+    const lines = Object.entries(lineMap)
+        .sort((a,b) => Number(b[0]) - Number(a[0]))
+        .map(([y, items]) => ({
+            y: Number(y),
+            items: items.sort((a,b) => a.x - b.x), // left→right within line
+            text: items.sort((a,b)=>a.x-b.x).map(it=>it.str.trim()).filter(Boolean).join(' ')
+        }));
 
-    // If we couldn't detect zones from headers, use fixed column split
+    // Find zone header line (contains Autorim/Corridor/Canteen keywords)
+    let zoneHeaderLine = null;
+    let zoneCols = []; // [{zone, x}] sorted left→right
+    lines.forEach(line => {
+        const hasAutorim = /autorim/i.test(line.text);
+        const hasCorridor = /corridor|ممرات/i.test(line.text);
+        const hasCanteen = /canteen|مطعم/i.test(line.text);
+        if(hasAutorim || hasCorridor || hasCanteen) {
+            zoneHeaderLine = line;
+            line.items.forEach(it => {
+                const sl = it.str.toLowerCase();
+                if(/autorim/i.test(sl)) zoneCols.push({zone:'Autorim', x:it.x});
+                else if(/corridor|ممرات/i.test(it.str)) zoneCols.push({zone:'Corridor', x:it.x});
+                else if(/canteen|مطعم/i.test(it.str)) zoneCols.push({zone:'Canteen', x:it.x});
+            });
+        }
+    });
+    zoneCols.sort((a,b)=>a.x-b.x);
+
+    // Assign X position to nearest zone
     const getZone = x => {
         if(zoneCols.length < 2) {
-            // fallback: 3 equal columns
-            const maxX = Math.max(...items.map(it=>it.x));
-            const minX = Math.min(...items.map(it=>it.x));
-            const third = (maxX-minX)/3;
-            if(x < minX+third) return 'Autorim';
-            if(x < minX+2*third) return 'Corridor';
+            // Fallback: equal thirds
+            const xs = pageItemsAllPages.map(it=>it.x);
+            const minX=Math.min(...xs), maxX=Math.max(...xs), w=(maxX-minX)/3;
+            if(x < minX+w) return 'Autorim';
+            if(x < minX+2*w) return 'Corridor';
             return 'Canteen';
         }
-        // Assign to nearest zone column
-        let best=zoneCols[0], bestD=Math.abs(x-zoneCols[0].x);
-        zoneCols.forEach(zc=>{ const d=Math.abs(x-zc.x); if(d<bestD){bestD=d;best=zc;} });
+        let best=zoneCols[0], bestD=9999;
+        zoneCols.forEach(zc=>{const d=Math.abs(x-zc.x);if(d<bestD){bestD=d;best=zc;}});
         return best.zone;
     };
 
-    // Find day rows: items containing day names
+    // Find day rows: lines that contain a day token
     const dayRows = [];
-    items.forEach(it => {
-        const sl = it.str.toLowerCase().replace(/[()]/g,'').trim();
-        const dayCode = DAYS_MAP[sl] || DAYS_MAP[it.str.trim()] || DAYS_MAP[it.str.replace(/[()]/g,'').trim().toLowerCase()];
-        if(dayCode && !dayRows.find(r=>r.day===dayCode)) {
-            dayRows.push({day:dayCode, y:it.y});
-        }
+    lines.forEach(line => {
+        line.items.forEach(it => {
+            const code = getDayCode(it.str);
+            if(code && !dayRows.find(r=>r.day===code)) {
+                dayRows.push({day:code, y:line.y, lineIdx:lines.indexOf(line)});
+            }
+        });
     });
+    if(dayRows.length < 3) return null;
     dayRows.sort((a,b)=>b.y-a.y); // top→bottom
-
-    if(dayRows.length<3) return null; // not a supervision table
 
     const entries = [];
     dayRows.forEach((dr, di) => {
-        const yLo = di+1 < dayRows.length ? dayRows[di+1].y - 5 : 0;
-        const yHi = dr.y + 5;
-        // Get all text items in this day's row (exclude the day label itself)
-        const rowItems = items.filter(it => it.y >= yLo && it.y <= yHi);
-        // Group text by zone column, concatenate, split on "+"
-        const byZone = {Autorim:[],Corridor:[],Canteen:[]};
-        rowItems.forEach(it => {
-            const sl=it.str.toLowerCase().replace(/[()]/g,'').trim();
-            if(DAYS_MAP[sl]||DAYS_MAP[it.str.trim()]) return; // skip day label
-            const zone = getZone(it.x);
-            byZone[zone].push(it.str.trim());
+        // Collect all lines between this day row and the next
+        const yTop = dr.y + 6;
+        const yBot = di+1 < dayRows.length ? dayRows[di+1].y + 6 : 0;
+        const rowLines = lines.filter(l => l.y <= yTop && l.y > yBot);
+
+        // Also include teacher names on the SAME line as the day token
+        const sameLine = lines.find(l=>Math.abs(l.y-dr.y)<=6);
+        if(sameLine && !rowLines.includes(sameLine)) rowLines.push(sameLine);
+
+        // Collect all teacher-name tokens grouped by zone
+        const byZone = {Autorim:'',Corridor:'',Canteen:''};
+        rowLines.forEach(line => {
+            line.items.forEach(it => {
+                if(isDayToken(it.str)) return; // skip day labels
+                const zone = getZone(it.x);
+                byZone[zone] += (byZone[zone]?'':'')+it.str.trim();
+            });
         });
-        ZONES.forEach(zone => {
-            const cellText = byZone[zone].join(' ').replace(/\s*\+\s*/g,'+');
-            const teacherNames = cellText.split('+').map(t=>t.trim()).filter(t=>t.length>1);
-            teacherNames.forEach(tname => {
+
+        // Split by "+" and clean up each teacher name
+        ['Autorim','Corridor','Canteen'].forEach(zone => {
+            const cell = byZone[zone].replace(/\s*\+\s*/g,'+').replace(/([A-Za-z])\.([A-Za-z])/g,'$1. $2');
+            const teachers = cell.split('+').map(t=>t.trim()).filter(t=>t.length>1 && /[A-Za-z]/.test(t));
+            teachers.forEach(tname => {
                 entries.push({
-                    rawLine: `${tname} | ${dr.day} | ${breakStart}-${breakEnd} | duty | Break Supervision - ${zone} | ${phase}`,
-                    teacher: tname, day: dr.day,
-                    start: breakStart, end: breakEnd,
-                    type: 'duty',
-                    subject: `Break Supervision - ${zone}`,
-                    location: zone,
-                    _phase: phase
+                    rawLine:`${tname} | ${dr.day} | ${breakStart}-${breakEnd} | duty | Break Supervision - ${zone}`,
+                    teacher:tname, day:dr.day,
+                    start:breakStart, end:breakEnd,
+                    type:'duty',
+                    subject:`Break Supervision - ${zone}`,
+                    location:zone, _phase:phase
                 });
             });
         });
