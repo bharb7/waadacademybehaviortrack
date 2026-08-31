@@ -645,6 +645,10 @@ function parsePrimeTimetablePage(pageItems, className) {
         if (!col) return;
         byCol[col.day].push(it);
     });
+    // Teacher name pattern: "A. Lastname" or single capitalised name like "Hussam"
+    const TEACHER_RE = /^[A-Z][A-Za-z.]*\.\s*[A-Z][a-z]{2,}|^[A-Z][a-z]{3,}$/;
+    const isTeacherLike = s => TEACHER_RE.test(s.trim());
+    const isLocationLike = s => /^(ICT Lab|Lab\d*|Court|Library|Options|\d+\s*(Blue|Green|Orange|Red|Yellow))/i.test(s.trim());
     // For each column, sort top→bottom (y DESC) then parse Subject→Teacher→[Loc]→Start→End
     const entries = [];
     cols.forEach(({day}) => {
@@ -653,7 +657,8 @@ function parsePrimeTimetablePage(pageItems, className) {
         let i = 0;
         while (i < lines.length) {
             const subj = lines[i];
-            if (TIME_RE.test(subj)) { i++; continue; }
+            // Subject must not be a time, skip token, or look like a teacher name
+            if (TIME_RE.test(subj) || SKIP.has(subj) || isTeacherLike(subj)) { i++; continue; }
             let j = i + 1;
             if (j >= lines.length) { i++; continue; }
             const tRaw = lines[j];
@@ -663,13 +668,20 @@ function parsePrimeTimetablePage(pageItems, className) {
             j++;
             if (j >= lines.length) { i++; continue; }
             let loc = '', start = '', end = '';
-            if (!TIME_RE.test(lines[j]) && !SKIP.has(lines[j])) { loc = lines[j]; j++; }
+            // Location: accept only known room patterns; skip if it looks like another teacher name
+            if (!TIME_RE.test(lines[j]) && !SKIP.has(lines[j])) {
+                if (isLocationLike(lines[j]) || !isTeacherLike(lines[j])) {
+                    loc = lines[j]; j++;
+                }
+            }
             if (j >= lines.length) { i++; continue; }
             if (!TIME_RE.test(lines[j])) { i++; continue; }
             start = fmtT(lines[j]); j++;
             if (j >= lines.length) { i++; continue; }
             if (!TIME_RE.test(lines[j])) { i++; continue; }
             end = fmtT(lines[j]);
+            // Reject zero-duration entries (start == end means parser misread times)
+            if (start === end) { i++; continue; }
             const finalLoc = loc || ptClassLabel(className);
             entries.push({
                 rawLine: `${subj} | ${teacher} | ${day} | ${start}-${end} | ${finalLoc}`,
