@@ -680,6 +680,107 @@ function parsePrimeTimetablePage(pageItems, className) {
     });
     return entries;
 }
+// ── Supervision/Break Duty PDF parser ──────────────────────────────────────
+// Handles Waad Academy "Break Supervision" table PDFs (both G4-6 and G7-12)
+// Table format: Day | Autorim | Corridor | Canteen
+// Teachers separated by " + " or "+"
+function parseSupervisionPdf(pageItemsAllPages) {
+    const DAYS_MAP = {
+        'sunday':'Sun','الأحد':'Sun','احد':'Sun',
+        'monday':'Mon','الاثنين':'Mon','الإثنين':'Mon',
+        'tuesday':'Tue','الثلاثاء':'Tue',
+        'wednesday':'Wed','الأربعاء':'Wed','الاربعاء':'Wed',
+        'thursday':'Thu','الخميس':'Thu',
+    };
+    const ZONES = ['Autorim','Corridor','Canteen'];
+    const ZONE_KEYWORDS = {
+        autorim:'Autorim', ممرات:'Corridor', corridor:'Corridor',
+        مطعم:'Canteen', canteen:'Canteen'
+    };
+    // Detect break time from title: "7-12" → 10:00-10:30, "4-6" → 11:25-11:40
+    const allText = pageItemsAllPages.map(it=>it.str).join(' ');
+    const is712 = /7-12|٧.*١٢/.test(allText);
+    const is46  = /4-6|٤.*٦/.test(allText);
+    const breakStart = is46 ? '11:25' : '10:00';
+    const breakEnd   = is46 ? '11:40' : '10:30';
+    const phase      = is46 ? 'G4-6' : 'G7-12';
+
+    // Sort all items top→bottom, left→right
+    const items = pageItemsAllPages.sort((a,b)=>b.y-a.y||a.x-b.x);
+
+    // Find zone header X positions from keywords
+    const zoneHeaders = [];
+    items.forEach(it => {
+        const kl = it.str.toLowerCase().replace(/[()]/g,'').trim();
+        if(ZONE_KEYWORDS[kl]) zoneHeaders.push({zone:ZONE_KEYWORDS[kl], x:it.x, y:it.y});
+    });
+    // Deduplicate zones (keep one per zone type)
+    const uniqueZones = {};
+    zoneHeaders.forEach(zh => { if(!uniqueZones[zh.zone]) uniqueZones[zh.zone]=zh; });
+    const zoneCols = Object.values(uniqueZones).sort((a,b)=>a.x-b.x);
+
+    // If we couldn't detect zones from headers, use fixed column split
+    const getZone = x => {
+        if(zoneCols.length < 2) {
+            // fallback: 3 equal columns
+            const maxX = Math.max(...items.map(it=>it.x));
+            const minX = Math.min(...items.map(it=>it.x));
+            const third = (maxX-minX)/3;
+            if(x < minX+third) return 'Autorim';
+            if(x < minX+2*third) return 'Corridor';
+            return 'Canteen';
+        }
+        // Assign to nearest zone column
+        let best=zoneCols[0], bestD=Math.abs(x-zoneCols[0].x);
+        zoneCols.forEach(zc=>{ const d=Math.abs(x-zc.x); if(d<bestD){bestD=d;best=zc;} });
+        return best.zone;
+    };
+
+    // Find day rows: items containing day names
+    const dayRows = [];
+    items.forEach(it => {
+        const sl = it.str.toLowerCase().replace(/[()]/g,'').trim();
+        const dayCode = DAYS_MAP[sl] || DAYS_MAP[it.str.trim()] || DAYS_MAP[it.str.replace(/[()]/g,'').trim().toLowerCase()];
+        if(dayCode && !dayRows.find(r=>r.day===dayCode)) {
+            dayRows.push({day:dayCode, y:it.y});
+        }
+    });
+    dayRows.sort((a,b)=>b.y-a.y); // top→bottom
+
+    if(dayRows.length<3) return null; // not a supervision table
+
+    const entries = [];
+    dayRows.forEach((dr, di) => {
+        const yLo = di+1 < dayRows.length ? dayRows[di+1].y - 5 : 0;
+        const yHi = dr.y + 5;
+        // Get all text items in this day's row (exclude the day label itself)
+        const rowItems = items.filter(it => it.y >= yLo && it.y <= yHi);
+        // Group text by zone column, concatenate, split on "+"
+        const byZone = {Autorim:[],Corridor:[],Canteen:[]};
+        rowItems.forEach(it => {
+            const sl=it.str.toLowerCase().replace(/[()]/g,'').trim();
+            if(DAYS_MAP[sl]||DAYS_MAP[it.str.trim()]) return; // skip day label
+            const zone = getZone(it.x);
+            byZone[zone].push(it.str.trim());
+        });
+        ZONES.forEach(zone => {
+            const cellText = byZone[zone].join(' ').replace(/\s*\+\s*/g,'+');
+            const teacherNames = cellText.split('+').map(t=>t.trim()).filter(t=>t.length>1);
+            teacherNames.forEach(tname => {
+                entries.push({
+                    rawLine: `${tname} | ${dr.day} | ${breakStart}-${breakEnd} | duty | Break Supervision - ${zone} | ${phase}`,
+                    teacher: tname, day: dr.day,
+                    start: breakStart, end: breakEnd,
+                    type: 'duty',
+                    subject: `Break Supervision - ${zone}`,
+                    location: zone,
+                    _phase: phase
+                });
+            });
+        });
+    });
+    return entries.length ? {entries, breakStart, breakEnd, phase} : null;
+}
 // Reads a PDF timetable/schedule and produces structured rows for the schedule import modal
 const readPdfRows = file => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -695,6 +796,19 @@ const readPdfRows = file => new Promise((resolve, reject) => {
             const firstContent = await firstPage.getTextContent();
             const firstText = firstContent.items.map(it => it.str).join(' ');
             const isWaad = /Waad\s+Academy.*Boys/i.test(firstText);
+            const isSupervision = /Supervision|إشراف الفسحة|إشراف.*فسح/i.test(firstText);
+            if (isSupervision) {
+                // Supervision table PDF parser
+                const allItems = [];
+                for (let p = 1; p <= pdf.numPages; p++) {
+                    const page = await pdf.getPage(p);
+                    const content = await page.getTextContent();
+                    content.items.filter(it=>it.str&&it.str.trim())
+                        .forEach(it=>allItems.push({str:it.str.trim(),x:Math.round(it.transform[4]),y:Math.round(it.transform[5])}));
+                }
+                const result = parseSupervisionPdf(allItems);
+                if(result) { resolve(result.entries); return; }
+            }
             if (isWaad) {
                 // Column-based parser: process each page independently
                 const allEntries = [];
@@ -11396,81 +11510,7 @@ function TDSchedule({ data, teachers, isAr }) {
                             editingId ? '✏️' : '➕',
                             " ",
                             editingId ? (isAr ? 'تعديل الحصة/المناوبة' : 'Edit Schedule Entry') : (isAr ? 'إضافة إلى الجدول' : 'Add Schedule Entry')),
-                        React.createElement("button", {
-                            className: "btn bsm",
-                            style: {background:'#f59e0b',color:'#fff',border:'none',fontSize:12},
-                            onClick: async () => {
-                                const SUPERVISION = [
-                                    {teacher:'I. Asghar', day:'Sun', loc:'Autorim'},
-                                    {teacher:'M. Akhtar', day:'Sun', loc:'Autorim'},
-                                    {teacher:'O. Abdouni', day:'Sun', loc:'Corridor'},
-                                    {teacher:'S. Alkarim', day:'Sun', loc:'Corridor'},
-                                    {teacher:'S. Najah', day:'Sun', loc:'Canteen'},
-                                    {teacher:'Y. Zahreddine', day:'Sun', loc:'Canteen'},
-                                    {teacher:'A. Hussein', day:'Mon', loc:'Autorim'},
-                                    {teacher:'Hussam', day:'Mon', loc:'Autorim'},
-                                    {teacher:'J. Golandaz', day:'Mon', loc:'Autorim'},
-                                    {teacher:'M. Lukie', day:'Mon', loc:'Corridor'},
-                                    {teacher:'J. Golandaz', day:'Mon', loc:'Corridor'},
-                                    {teacher:'M. Zafar', day:'Mon', loc:'Canteen'},
-                                    {teacher:'A. Almaghrabi', day:'Tue', loc:'Autorim'},
-                                    {teacher:'A. Khalil', day:'Tue', loc:'Autorim'},
-                                    {teacher:'M. Ramadan', day:'Tue', loc:'Corridor'},
-                                    {teacher:'I. Alqurashi', day:'Tue', loc:'Corridor'},
-                                    {teacher:'N. Malik', day:'Tue', loc:'Canteen'},
-                                    {teacher:'S. Siddiqui', day:'Tue', loc:'Canteen'},
-                                    {teacher:'M. Saleh', day:'Wed', loc:'Autorim'},
-                                    {teacher:'A. Kiwan', day:'Wed', loc:'Autorim'},
-                                    {teacher:'A. Saleh', day:'Wed', loc:'Corridor'},
-                                    {teacher:'M. Ismail', day:'Wed', loc:'Corridor'},
-                                    {teacher:'M. Korkomaz', day:'Wed', loc:'Canteen'},
-                                    {teacher:'A. Alghamdi', day:'Thu', loc:'Autorim'},
-                                    {teacher:'A. Griss', day:'Thu', loc:'Autorim'},
-                                    {teacher:'M. Moe', day:'Thu', loc:'Corridor'},
-                                    {teacher:'S. Liaquat', day:'Thu', loc:'Corridor'},
-                                    {teacher:'S. Shah', day:'Thu', loc:'Canteen'},
-                                ];
-                                // Read teachers FRESH from Firebase to avoid stale state
-                                const snap = await db.ref('/btpro/teachers').once('value');
-                                const freshTeachers = Object.values(snap.val()||{});
-                                // Resolve by exact name first, then last-name fallback
-                                const resolveByName = name => {
-                                    const nl = name.trim().toLowerCase();
-                                    // 1. Exact match
-                                    let m = freshTeachers.find(t=>(t.name||'').trim().toLowerCase()===nl);
-                                    if(m) return m;
-                                    // 2. Last-name match
-                                    const last = nl.split(/\s+/).pop().replace(/\./g,'');
-                                    if(last.length < 3) return null;
-                                    return freshTeachers.find(t=>{
-                                        const parts=(t.name||'').trim().toLowerCase().split(/\s+/);
-                                        return parts.some(p=>p.replace(/\./g,'')===last);
-                                    });
-                                };
-                                const schedSnap = await db.ref('/btpro/teacherSchedule').once('value');
-                                const currentSched = schedSnap.val()||{};
-                                const upd = {};
-                                let added=0, dupes=0;
-                                const unmatched=[];
-                                SUPERVISION.forEach(s => {
-                                    const matched = resolveByName(s.teacher);
-                                    if(!matched){unmatched.push(s.teacher);return;}
-                                    const tid = matched.id;
-                                    const existing = Object.values(currentSched[tid]||{});
-                                    const dup = existing.find(e=>e.day===s.day&&e.start==='10:00'&&e.end==='10:30'&&e.location===s.loc);
-                                    if(dup){dupes++;return;}
-                                    const id = uid();
-                                    upd[`/btpro/teacherSchedule/${tid}/${id}`]={id,day:s.day,start:'10:00',end:'10:30',type:'duty',label:`Break Supervision - ${s.loc}`,location:s.loc};
-                                    added++;
-                                });
-                                if(Object.keys(upd).length>0) await db.ref('/').update(upd);
-                                const uniqueUnmatched=[...new Set(unmatched)];
-                                let msg=`🛡 Supervision import:\n• ${added} duty entries added\n• ${dupes} already existed (skipped)`;
-                                if(uniqueUnmatched.length) msg+=`\n\n⚠️ Could not match:\n${uniqueUnmatched.join(', ')}`;
-                                alert(msg);
-                            }
-                        }, isAr ? '🛡 استيراد إشراف الفسحة' : '🛡 Import Break Supervision'),
-                        React.createElement(SmartImportButton, { label: isAr ? 'استيراد الجدول' : 'Import Schedule (PDF/Excel)', isAr: isAr, accept: ".xlsx,.xls,.csv,.docx,.pdf", note: isAr ? 'PDF من PrimeTimetable: يتم التعرف عليه تلقائياً — تُستخرج الصفوف والمواد وتُضاف للمعلمين تلقائياً. عند إعادة الاستيراد يتم الكشف عن التعارضات والتكرارات.' : 'PrimeTimetable PDF: auto-detected — grades & subjects written to teacher profiles. Re-importing flags conflicts and duplicates automatically.', columns: [isAr ? 'المعلم' : 'Teacher', isAr ? 'اليوم' : 'Day', isAr ? 'من' : 'Start', isAr ? 'إلى' : 'End', isAr ? 'النوع' : 'Type', isAr ? 'الوصف' : 'Label', isAr ? 'الموقع' : 'Location'], parseRow: raw => {
+                                                React.createElement(SmartImportButton, { label: isAr ? 'استيراد الجدول' : 'Import Schedule (PDF/Excel)', isAr: isAr, accept: ".xlsx,.xls,.csv,.docx,.pdf", note: isAr ? 'PDF من PrimeTimetable: يتم التعرف عليه تلقائياً — تُستخرج الصفوف والمواد وتُضاف للمعلمين تلقائياً. عند إعادة الاستيراد يتم الكشف عن التعارضات والتكرارات.' : 'PrimeTimetable PDF: auto-detected — grades & subjects written to teacher profiles. Re-importing flags conflicts and duplicates automatically.', columns: [isAr ? 'المعلم' : 'Teacher', isAr ? 'اليوم' : 'Day', isAr ? 'من' : 'Start', isAr ? 'إلى' : 'End', isAr ? 'النوع' : 'Type', isAr ? 'الوصف' : 'Label', isAr ? 'الموقع' : 'Location'], parseRow: raw => {
                                 const teacherName = pickField(raw, ['teacher', 'teacher name', 'name', 'معلم', 'اسم المعلم', 'المعلم']);
                                 const dayRaw = pickField(raw, ['day', 'يوم', 'اليوم']);
                                 const startRaw = pickField(raw, ['start', 'start time', 'from', 'من', 'بداية']);
