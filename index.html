@@ -11399,7 +11399,7 @@ function TDSchedule({ data, teachers, isAr }) {
                         React.createElement("button", {
                             className: "btn bsm",
                             style: {background:'#f59e0b',color:'#fff',border:'none',fontSize:12},
-                            onClick: () => {
+                            onClick: async () => {
                                 const SUPERVISION = [
                                     {teacher:'I. Asghar', day:'Sun', loc:'Autorim'},
                                     {teacher:'M. Akhtar', day:'Sun', loc:'Autorim'},
@@ -11430,36 +11430,43 @@ function TDSchedule({ data, teachers, isAr }) {
                                     {teacher:'S. Liaquat', day:'Thu', loc:'Corridor'},
                                     {teacher:'S. Shah', day:'Thu', loc:'Canteen'},
                                 ];
-                                // Extended resolve: tries resolveTeacher first, then last-name-only fallback
-                                const resolveSupervision = name => {
-                                    const direct = resolveTeacher(name);
-                                    if (direct) return direct;
-                                    // last-name only fallback (e.g. "Asghar" matches "I. Asghar")
-                                    const lastName = name.trim().split(/\s+/).pop().replace(/\./g,'').toLowerCase();
-                                    if (lastName.length < 3) return null;
-                                    return teachers.find(t => {
-                                        const tParts = t.name.trim().toLowerCase().split(/\s+/);
-                                        return tParts.some(p => p.replace(/\./g,'') === lastName);
+                                // Read teachers FRESH from Firebase to avoid stale state
+                                const snap = await db.ref('/btpro/teachers').once('value');
+                                const freshTeachers = Object.values(snap.val()||{});
+                                // Resolve by exact name first, then last-name fallback
+                                const resolveByName = name => {
+                                    const nl = name.trim().toLowerCase();
+                                    // 1. Exact match
+                                    let m = freshTeachers.find(t=>(t.name||'').trim().toLowerCase()===nl);
+                                    if(m) return m;
+                                    // 2. Last-name match
+                                    const last = nl.split(/\s+/).pop().replace(/\./g,'');
+                                    if(last.length < 3) return null;
+                                    return freshTeachers.find(t=>{
+                                        const parts=(t.name||'').trim().toLowerCase().split(/\s+/);
+                                        return parts.some(p=>p.replace(/\./g,'')===last);
                                     });
                                 };
+                                const schedSnap = await db.ref('/btpro/teacherSchedule').once('value');
+                                const currentSched = schedSnap.val()||{};
                                 const upd = {};
-                                let added = 0, dupes = 0;
-                                const unmatched = [];
+                                let added=0, dupes=0;
+                                const unmatched=[];
                                 SUPERVISION.forEach(s => {
-                                    const matched = resolveSupervision(s.teacher);
-                                    if (!matched) { unmatched.push(s.teacher); return; }
+                                    const matched = resolveByName(s.teacher);
+                                    if(!matched){unmatched.push(s.teacher);return;}
                                     const tid = matched.id;
-                                    const existing = Object.values(sched[tid]||{});
-                                    const dup = existing.find(e => e.day===s.day && e.start==='10:00' && e.end==='10:30' && e.location===s.loc);
-                                    if (dup) { dupes++; return; }
+                                    const existing = Object.values(currentSched[tid]||{});
+                                    const dup = existing.find(e=>e.day===s.day&&e.start==='10:00'&&e.end==='10:30'&&e.location===s.loc);
+                                    if(dup){dupes++;return;}
                                     const id = uid();
-                                    upd[`/btpro/teacherSchedule/${tid}/${id}`] = {id, day:s.day, start:'10:00', end:'10:30', type:'duty', label:`Break Supervision - ${s.loc}`, location:s.loc};
+                                    upd[`/btpro/teacherSchedule/${tid}/${id}`]={id,day:s.day,start:'10:00',end:'10:30',type:'duty',label:`Break Supervision - ${s.loc}`,location:s.loc};
                                     added++;
                                 });
-                                if (Object.keys(upd).length > 0) db.ref('/').update(upd);
-                                const uniqueUnmatched = [...new Set(unmatched)];
-                                let msg = `🛡 Supervision import:\n• ${added} duty entries added\n• ${dupes} already existed (skipped)`;
-                                if (uniqueUnmatched.length) msg += `\n\n⚠️ Could not match ${uniqueUnmatched.length} teacher(s):\n${uniqueUnmatched.join(', ')}\n\nCheck their names in Teacher Settings match exactly.`;
+                                if(Object.keys(upd).length>0) await db.ref('/').update(upd);
+                                const uniqueUnmatched=[...new Set(unmatched)];
+                                let msg=`🛡 Supervision import:\n• ${added} duty entries added\n• ${dupes} already existed (skipped)`;
+                                if(uniqueUnmatched.length) msg+=`\n\n⚠️ Could not match:\n${uniqueUnmatched.join(', ')}`;
                                 alert(msg);
                             }
                         }, isAr ? '🛡 استيراد إشراف الفسحة' : '🛡 Import Break Supervision'),
