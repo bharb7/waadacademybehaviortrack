@@ -6,7 +6,7 @@
 <title>BehaviorTrack Pro</title>
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
-<!-- Babel pre-compiled — no runtime transpiler needed -->
+<!-- Babel pre-compiled -->
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
@@ -592,130 +592,114 @@ const readDocxRows = file => new Promise((resolve, reject) => {
     reader.onerror = () => reject(new Error('Could not read file'));
     reader.readAsArrayBuffer(file);
 });
-// ── PrimeTimetable Premium PDF parser ──────────────────────────────────────────
-// Handles the visual grid format produced by PrimeTimetable (Waad Academy timetables).
-// Each page is one class; columns=days, rows=periods; cells contain subject+teacher+location.
-const PT_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];
-const PT_DAY_CODE = { Sunday: 'Sunday', Monday: 'Monday', Tuesday: 'Tuesday', Wednesday: 'Wednesday', Thursday: 'Thursday' };
-const PT_PERIOD_TIMES = { P1: ['08:00', '09:00'], P2: ['09:00', '10:00'], P3: ['10:30', '11:30'], P4: ['11:30', '12:30'], P5: ['12:50', '13:40'], P6: ['13:40', '14:30'] };
-const PT_TIME_RE = /^\d{2}:\d{2}$/;
+// ── PrimeTimetable Linear Text Parser (Waad Academy 2025-26) ────────────────
+// Reads the linear text stream from PrimeTimetable PDFs.
+// Each class page produces: Subject → Teacher → [Location] → StartTime → EndTime
+// Days are assigned by occurrence order per (teacher, subject) group: 1st=Sun, 2nd=Mon…
 const PT_CLASS_COLOR = { B: 'Blue', G: 'Green', O: 'Orange', R: 'Red', Y: 'Yellow', P: 'Purple', W: 'White', S: 'Silver' };
 const ptClassLabel = cls => {
-    // "7B" → "7 Blue",  "10G" → "10 Green", "8R" → "8 Red"
     const m = cls && cls.match(/^(\d+)([A-Z])$/);
     if (!m)
         return cls || '';
     return m[1] + ' ' + (PT_CLASS_COLOR[m[2]] || m[2]);
 };
-function parsePrimeTimetablePage(items) {
-    // items: [{str, x, y}] — y is from BOTTOM (pdf.js convention), x from left
-    if (!items.length)
-        return null;
-    // Title: highest-y items (top of page in pdf.js = large y)
-    const maxY = Math.max(...items.map(it => it.y));
-    const titleItems = items.filter(it => it.y > maxY - 60);
-    const titleStr = titleItems.map(it => it.str).join(' ');
-    const classM = titleStr.match(/\b(\d+[A-Z])\b/);
-    const className = classM ? classM[1] : 'Unknown';
-    // Detect PrimeTimetable: must have at least 3 day headers in top region
-    const dayHeaderArea = items.filter(it => it.y > maxY - 100);
-    const foundDays = PT_DAY_NAMES.filter(d => dayHeaderArea.some(it => it.str === d));
-    if (foundDays.length < 3)
-        return null; // not PrimeTimetable format
-    // Build column x-bounds from day header centers
-    const dayHeaders = PT_DAY_NAMES
-        .map(d => {
-        const hits = dayHeaderArea.filter(it => it.str === d);
-        if (!hits.length)
-            return null;
-        const cx = hits.reduce((s, it) => s + it.x, 0) / hits.length;
-        return { day: d, cx };
-    })
-        .filter(Boolean).sort((a, b) => a.cx - b.cx);
-    const colBounds = dayHeaders.map((dh, i) => {
-        const prev = i > 0 ? dayHeaders[i - 1].cx : 0;
-        const next = i + 1 < dayHeaders.length ? dayHeaders[i + 1].cx : 9999;
-        return { day: dh.day, lo: i === 0 ? 30 : (prev + dh.cx) / 2, hi: (dh.cx + next) / 2 };
-    });
-    const getCol = x => colBounds.find(cb => x >= cb.lo && x < cb.hi) || null;
-    // Find period labels: "P1"–"P6" at small x values
-    const periodRe = /^P[1-6]$/;
-    const periodItems = items.filter(it => periodRe.test(it.str) && it.x < 60);
-    if (periodItems.length < 3)
-        return null;
-    const periodTops = {}; // P1→y (in pdf.js bottom-up coords)
-    periodItems.forEach(it => { periodTops[it.str] = it.y; });
-    const sortedPeriods = Object.entries(periodTops).sort((a, b) => b[1] - a[1]); // highest y = topmost = P1
-    // Content items: exclude title area, day headers, period labels, break/prayer markers
-    const skipSet = new Set(['Break', 'Prayer', '2025-2026', '2026-2027', '2025-2027']);
-    const contentItems = items.filter(it => {
-        if (it.y > maxY - 60)
-            return false; // title zone
-        if (PT_DAY_NAMES.includes(it.str) && it.y > maxY - 100)
-            return false;
-        if (periodRe.test(it.str) && it.x < 60)
-            return false;
-        if (skipSet.has(it.str))
-            return false;
-        if (!it.str.trim())
-            return false;
-        return true;
-    });
-    const entries = [];
-    sortedPeriods.forEach(([period, pY], pi) => {
-        const [startT, endT] = PT_PERIOD_TIMES[period] || ['', ''];
-        // KEY: include items slightly ABOVE (higher y) the period label to catch start-time row
-        const rowHi = pY + 22;
-        const rowLo = pi + 1 < sortedPeriods.length ? (sortedPeriods[pi + 1][1] + 22) : 0;
-        const rowItems = contentItems.filter(it => it.y >= rowLo && it.y <= rowHi);
-        // Group by column
-        const byCol = {};
-        rowItems.forEach(it => {
-            const cb = getCol(it.x);
-            if (!cb)
-                return;
-            (byCol[cb.day] = byCol[cb.day] || []).push(it);
-        });
-        Object.entries(byCol).forEach(([day, cItems]) => {
-            cItems.sort((a, b) => b.y - a.y || (a.x - b.x)); // top-to-bottom, left-to-right
-            const texts = cItems.map(it => it.str).filter(s => !PT_TIME_RE.test(s));
-            const full = texts.join(' ').replace(/\s+/g, ' ').trim();
-            if (!full)
-                return;
-            // Extract teachers: "X.Lastname" or "X. Lastname" patterns + known single-name teachers
-            // Normalize "M.Ramadan" → "M. Ramadan" before matching
-            const normalizedFull = full.replace(/([A-Z])\.([A-Za-z])/g, '$1. $2');
-            const teacherParts = normalizedFull.match(/[A-Z]\.\s*[A-Za-z]+/g) || [];
-            const singleNames = full.match(/\bHussam\b|\bCo\b/g) || [];
-            const teachers = [...teacherParts, ...singleNames].map(t => t.replace(/([A-Z])\.([A-Za-z])/, '$1. $2').trim());
-            if (!teachers.length)
-                return;
-            // Location: specific room if present, otherwise the class name expanded (e.g. "7 Blue")
-            const locM = full.match(/\b(Lab\s*\d*|Court\s*\d*|Lib)\b/);
-            const location = locM ? locM[0].trim() : ptClassLabel(className);
-            // Subject: remove teacher tokens and location
-            let subject = full;
-            teachers.forEach(t => { subject = subject.replace(t, ' '); });
-            if (location)
-                subject = subject.replace(new RegExp(location.replace(/\s+/, '\\s*'), 'i'), ' ');
-            subject = subject.replace(/\s+/g, ' ').trim();
-            if (!subject)
-                return;
-            // One entry per teacher (split classes)
-            teachers.forEach(teacher => {
-                entries.push({
-                    rawLine: `${subject} | ${teacher.trim()} | ${day} | ${startT}-${endT}${location ? ' | ' + location : ''}`,
-                    teacher: teacher.trim(), day, start: startT, end: endT,
-                    subject, location, _class: className, _period: period
-                });
+const PT_TIME_RE_LIN = /^\d{1,2}:\d{2}$/;
+const PT_SKIP_LIN = new Set(['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'Break', 'Break 2', 'Prayer',
+    'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday',
+    '2025-2026', '2026-2027', '2025-2027', 'Sunday Monday Tuesday Wednesday Thursday']);
+const PT_DAY_HEADER_LIN = /^Sunday Monday/;
+const PT_CLASS_HDR_LIN = /Waad\s+Academy[-\s]+Boys\s*[-–]\s*(\d+\w+)/i;
+const DAYS_LIN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'];
+const fmtT = t => { const p = t.split(':'); return `${p[0].padStart(2, '0')}:${p[1]}`; };
+function parsePrimeTimetableLinear(allText) {
+    // Split full PDF text into per-class sections
+    const sections = allText.split(/(?=Waad\s+Academy[-\s]+Boys\s*[-–]\s*\d+)/i).filter(s => s.trim());
+    const allEntries = [];
+    sections.forEach(section => {
+        const lines = section.split('\n').map(l => l.trim()).filter(l => l);
+        // Extract class name from first line
+        const hdrM = PT_CLASS_HDR_LIN.exec(lines[0] || '');
+        if (!hdrM)
+            return;
+        const className = hdrM[1]; // e.g. "4B", "7G"
+        // Parse entries: Subject \n Teacher \n [Location] \n StartTime \n EndTime
+        const occCount = {}; // key=(teacher+subject) → count of occurrences so far (for day assignment)
+        let i = 0;
+        while (i < lines.length) {
+            const line = lines[i];
+            // Skip noise
+            if (PT_SKIP_LIN.has(line) || PT_DAY_HEADER_LIN.test(line) || PT_TIME_RE_LIN.test(line) || PT_CLASS_HDR_LIN.test(line)) {
+                i++;
+                continue;
+            }
+            // Potential subject line — next must be a teacher name (not a time, not skip)
+            const subject = line;
+            let j = i + 1;
+            if (j >= lines.length) {
+                i++;
+                continue;
+            }
+            const teacherLine = lines[j];
+            if (PT_SKIP_LIN.has(teacherLine) || PT_TIME_RE_LIN.test(teacherLine) || PT_DAY_HEADER_LIN.test(teacherLine)) {
+                i++;
+                continue;
+            }
+            // Normalize teacher name: "M.Ramadan" → "M. Ramadan"
+            const teacher = teacherLine.replace(/([A-Za-z])\.([A-Za-z])/g, '$1. $2').trim();
+            j++;
+            if (j >= lines.length) {
+                i++;
+                continue;
+            }
+            // Optional location (not a time)
+            let location = '';
+            let startLine = '';
+            if (!PT_TIME_RE_LIN.test(lines[j]) && !PT_SKIP_LIN.has(lines[j]) && !PT_CLASS_HDR_LIN.test(lines[j])) {
+                location = lines[j];
+                j++;
+            }
+            if (j >= lines.length) {
+                i++;
+                continue;
+            }
+            startLine = lines[j];
+            if (!PT_TIME_RE_LIN.test(startLine)) {
+                i++;
+                continue;
+            }
+            j++;
+            if (j >= lines.length) {
+                i++;
+                continue;
+            }
+            const endLine = lines[j];
+            if (!PT_TIME_RE_LIN.test(endLine)) {
+                i++;
+                continue;
+            }
+            // Valid entry — assign day by occurrence order
+            const key = teacher + '||' + subject;
+            const occ = occCount[key] || 0;
+            const day = DAYS_LIN[occ] || 'Thu';
+            occCount[key] = occ + 1;
+            // Skip "Co" (co-teacher placeholder)
+            if (teacher === 'Co') {
+                i = j + 1;
+                continue;
+            }
+            const finalLoc = location || ptClassLabel(className);
+            allEntries.push({
+                rawLine: `${subject} | ${teacher} | ${day} | ${fmtT(startLine)}-${fmtT(endLine)} | ${finalLoc}`,
+                teacher, day,
+                start: fmtT(startLine), end: fmtT(endLine),
+                subject, location: finalLoc, _class: className
             });
-        });
+            i = j + 1;
+        }
     });
-    return entries.length ? { className, entries } : null;
+    return allEntries;
 }
-// Reads a PDF timetable/schedule and turns it into line-based rows, same shape as the Word fallback ({rawLine, col1, col2, …})
-// so it flows through the exact same flexible-header/text-heuristic parseRow used for schedule imports.
-// For PrimeTimetable Premium PDFs (Waad Academy class timetables), uses a specialized grid parser.
+// Reads a PDF timetable/schedule and produces structured rows for the schedule import modal
 const readPdfRows = file => new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -725,46 +709,34 @@ const readPdfRows = file => new Promise((resolve, reject) => {
                 return;
             }
             const pdf = await pdfjsLib.getDocument({ data: e.target.result }).promise;
-            const rows = [];
-            let isPrimeTimetable = false;
+            // Collect all page text linearly (preserving reading order)
+            let fullText = '';
             for (let p = 1; p <= pdf.numPages; p++) {
                 const page = await pdf.getPage(p);
                 const content = await page.getTextContent();
-                // Collect items with coordinates
+                // Sort items by y DESC (top→bottom), then x ASC (left→right) to get reading order
                 const items = content.items
                     .filter(it => it.str && it.str.trim())
-                    .map(it => ({ str: it.str.trim(), x: Math.round(it.transform[4]), y: Math.round(it.transform[5]) }));
-                // Try PrimeTimetable parser on first page
-                if (p === 1) {
-                    const pt = parsePrimeTimetablePage(items);
-                    if (pt) {
-                        isPrimeTimetable = true;
-                    }
-                }
-                if (isPrimeTimetable) {
-                    const pt = parsePrimeTimetablePage(items);
-                    if (pt) {
-                        pt.entries.forEach(entry => rows.push(entry));
-                    }
-                    continue;
-                }
-                // Fallback: line-based extraction for generic PDFs
-                const lineMap = {};
-                items.forEach(it => {
-                    const y = Math.round(it.y);
-                    lineMap[y] = lineMap[y] || [];
-                    lineMap[y].push(it.str);
-                });
-                Object.keys(lineMap).map(Number).sort((a, b) => b - a).forEach(y => {
-                    const line = lineMap[y].join(' ').replace(/\s+/g, ' ').trim();
-                    if (!line)
-                        return;
-                    const parts = line.split(/\t|\s{2,}|\||(?:\s-\s)|,/).map(s => s.trim()).filter(Boolean);
-                    const obj = { rawLine: line };
-                    parts.forEach((part, i) => { obj['col' + (i + 1)] = part; });
-                    rows.push(obj);
-                });
+                    .map(it => ({ str: it.str.trim(), x: Math.round(it.transform[4]), y: Math.round(it.transform[5]) }))
+                    .sort((a, b) => b.y - a.y || a.x - b.x);
+                fullText += items.map(it => it.str).join('\n') + '\n';
             }
+            // Detect Waad Academy PrimeTimetable PDF
+            const isWaad = /Waad\s+Academy.*Boys/i.test(fullText);
+            if (isWaad) {
+                const entries = parsePrimeTimetableLinear(fullText);
+                resolve(entries);
+                return;
+            }
+            // Fallback: line-based extraction for generic PDFs
+            const rows = [];
+            const lines = fullText.split('\n').filter(l => l.trim());
+            lines.forEach(line => {
+                const parts = line.split(/\t|\s{2,}|\||(?:\s-\s)|,/).map(s => s.trim()).filter(Boolean);
+                const obj = { rawLine: line };
+                parts.forEach((part, idx) => { obj['col' + (idx + 1)] = part; });
+                rows.push(obj);
+            });
             resolve(rows);
         }
         catch (err) {
@@ -11495,10 +11467,7 @@ function TDSchedule({ data, teachers, isAr }) {
                                         tGrades[tid] = new Set();
                                     if (!tSubjects[tid])
                                         tSubjects[tid] = new Set();
-                                    // ── Smart merge: compare against existing schedule ──
                                     const existing = Object.values(sched[tid] || {});
-                                    const nS = timeToMin(r.entry.start), nE = timeToMin(r.entry.end);
-                                    // Exact duplicate (same day+start+end+label+location) → skip
                                     const dup = existing.find(e => e.day === r.entry.day && e.start === r.entry.start &&
                                         e.end === r.entry.end && e.label === r.entry.label &&
                                         (e.location || '').trim() === (r.entry.location || '').trim());
@@ -11506,19 +11475,15 @@ function TDSchedule({ data, teachers, isAr }) {
                                         cntSkipped++;
                                         return;
                                     }
-                                    // Same slot (day+start+end) but different label or location → UPDATE existing entry
                                     const sameSlot = existing.find(e => e.day === r.entry.day && e.start === r.entry.start && e.end === r.entry.end);
                                     if (sameSlot) {
-                                        // Overwrite in-place using the existing entry's id
                                         upd[`/btpro/teacherSchedule/${tid}/${sameSlot.id}`] = Object.assign(Object.assign({}, r.entry), { id: sameSlot.id });
                                         cntUpdated++;
                                     }
                                     else {
-                                        // Brand new slot → add
                                         upd[`/btpro/teacherSchedule/${tid}/${r.entry.id}`] = r.entry;
                                         cntAdded++;
                                     }
-                                    // Grade / subject extraction
                                     const gm = (r.entry.location || '').match(/^(\d+)\s/);
                                     if (gm)
                                         tGrades[tid].add('G' + gm[1]);
@@ -11528,13 +11493,11 @@ function TDSchedule({ data, teachers, isAr }) {
                                             tSubjects[tid].add(subj);
                                     }
                                 });
-                                // Write new teachers
                                 Object.entries(newTObjs).forEach(([tid, nt]) => {
                                     const g = [...(tGrades[tid] || new Set())].sort();
                                     const s = [...(tSubjects[tid] || new Set())].sort();
                                     upd[`/btpro/teachers/${tid}`] = Object.assign(Object.assign({}, nt), { grades: g, subjects: s });
                                 });
-                                // Merge grades/subjects into existing teachers
                                 Object.entries(tGrades).forEach(([tid, grades]) => {
                                     if (newTObjs[tid])
                                         return;
@@ -11548,8 +11511,7 @@ function TDSchedule({ data, teachers, isAr }) {
                                 });
                                 if (Object.keys(upd).length > 0)
                                     db.ref('/').update(upd);
-                                // Summary toast
-                                alert(`✅ Import complete:\n• ${cntAdded} slot(s) added\n• ${cntUpdated} slot(s) updated (same time, different content)\n• ${cntSkipped} duplicate(s) skipped`);
+                                alert(`✅ Import complete:\n• ${cntAdded} slot(s) added\n• ${cntUpdated} slot(s) updated\n• ${cntSkipped} duplicate(s) skipped`);
                             } })),
                     React.createElement("div", { style: { marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 } },
                         React.createElement("div", { ref: tRef, style: { position: 'relative' } },
