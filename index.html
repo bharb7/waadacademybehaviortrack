@@ -11236,26 +11236,32 @@ function TDSchedule({ data, teachers, isAr }) {
     const [schedView, setSchedView] = React.useState('teacher'); // 'teacher' | 'class'
     const [selClass, setSelClass] = React.useState('');
     const [classSearch, setClassSearch] = React.useState('');
+    const [gradeFilter, setGradeFilter] = React.useState(''); // e.g. '7' to show only G7 teachers
     const sched = data.teacherSchedule || {};
     // Build class index: class label → [{teacher, day, start, end, label, location, type}]
+    // Only real class locations: "8 Blue", "9 Green" etc — not rooms like "Library", "Lab2"
+    const CLASS_LOC_RE = /^\d+\s+(Blue|Green|Orange|Red|Yellow|Purple|Brown)$/i;
+    const isRealClass = loc => CLASS_LOC_RE.test((loc||'').trim());
     const classIndex = React.useMemo(() => {
         const idx = {};
         Object.entries(sched).forEach(([tid, entries]) => {
             const t = teachers.find(x => x.id === tid);
-            if (!t)
-                return;
+            if (!t) return;
             Object.values(entries).forEach(e => {
                 const loc = (e.location || '').trim();
-                if (!loc)
-                    return;
-                if (!idx[loc])
-                    idx[loc] = [];
+                if (!loc || !isRealClass(loc)) return; // skip rooms/supervision zones
+                if (!idx[loc]) idx[loc] = [];
                 idx[loc].push({ teacher: t, day: e.day, start: e.start, end: e.end, label: e.label, type: e.type, location: loc, id: e.id, tid });
             });
         });
         return idx;
     }, [sched, teachers]);
-    const allClasses = Object.keys(classIndex).sort((a, b) => a.localeCompare(b));
+    // Sort classes numerically: 4 Blue, 4 Green, 4 Orange... 12 Orange
+    const allClasses = Object.keys(classIndex).sort((a, b) => {
+        const [an, ac] = [parseInt(a), a.split(' ')[1]||''];
+        const [bn, bc] = [parseInt(b), b.split(' ')[1]||''];
+        return an !== bn ? an - bn : ac.localeCompare(bc);
+    });
     const filteredClasses = classSearch.trim() ? allClasses.filter(c => c.toLowerCase().includes(classSearch.toLowerCase())) : allClasses;
     const classDayLabel = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday' };
     const filteredTeachers = teachers.filter(t => t.name.toLowerCase().includes(tSearch.toLowerCase()));
@@ -11387,7 +11393,15 @@ function TDSchedule({ data, teachers, isAr }) {
     </body></html>`);
         w.document.close();
     };
-    const results = q.trim() ? teachers.filter(t => t.name.toLowerCase().includes(q.toLowerCase())) : [];
+    // Filter teachers by grade if gradeFilter is set
+    const teachersByGrade = gradeFilter
+        ? teachers.filter(t => {
+            const tid = t.id;
+            const tEntries = Object.values(sched[tid]||{});
+            return tEntries.some(e => isRealClass(e.location||'') && String(parseInt(e.location||'')) === gradeFilter);
+        })
+        : teachers;
+    const results = q.trim() ? teachersByGrade.filter(t => t.name.toLowerCase().includes(q.toLowerCase())) : (gradeFilter ? teachersByGrade : []);
     const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
     const today = nowDayCode();
     const locate = t => {
@@ -11502,22 +11516,38 @@ function TDSchedule({ data, teachers, isAr }) {
             (() => {
                 const totalTeachersScheduled = Object.keys(sched).length;
                 const totalEntries = Object.values(sched).reduce((acc, t) => acc + Object.keys(t).length, 0);
-                return (React.createElement("div", { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' } },
-                    React.createElement("div", { style: { fontSize: 12, color: '#64748b', flex: 1 } },
-                        "\uD83D\uDCCB ",
-                        React.createElement("strong", null, totalTeachersScheduled),
-                        " ",
-                        isAr ? 'معلم في الجدول' : 'teacher(s) scheduled',
-                        " \u00A0\u00B7\u00A0 ",
-                        React.createElement("strong", null, totalEntries),
-                        " ",
-                        isAr ? 'حصة/مناوبة' : 'total slot(s)'),
-                    React.createElement("button", { className: "btn btnd bsm", onClick: () => {
-                            if (window.confirm(isAr ? 'تحذير: سيتم حذف جميع جداول جميع المعلمين. هل أنت متأكد؟' : '⚠️ Delete ALL schedules for ALL teachers? This cannot be undone.'))
-                                db.ref('/btpro/teacherSchedule').remove();
-                        } },
-                        "\uD83D\uDDD1 ",
-                        isAr ? 'حذف كل الجداول' : 'Delete All Schedules')));
+                // Build grade filter options from classIndex
+                const grades = [...new Set(allClasses.map(c => parseInt(c)).filter(n=>!isNaN(n)))].sort((a,b)=>a-b);
+                return (React.createElement(React.Fragment, null,
+                    React.createElement("div", { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' } },
+                        React.createElement("div", { style: { fontSize: 12, color: '#64748b', flex: 1 } },
+                            "\uD83D\uDCCB ",
+                            React.createElement("strong", null, totalTeachersScheduled),
+                            " ",
+                            isAr ? 'معلم في الجدول' : 'teacher(s) scheduled',
+                            " \u00A0\u00B7\u00A0 ",
+                            React.createElement("strong", null, totalEntries),
+                            " ",
+                            isAr ? 'حصة/مناوبة' : 'total slot(s)'),
+                        React.createElement("button", { className: "btn btnd bsm", onClick: () => {
+                                if (window.confirm(isAr ? 'تحذير: سيتم حذف جميع جداول جميع المعلمين. هل أنت متأكد؟' : '⚠️ Delete ALL schedules for ALL teachers? This cannot be undone.'))
+                                    db.ref('/btpro/teacherSchedule').remove();
+                            } },
+                            "\uD83D\uDDD1 ",
+                            isAr ? 'حذف كل الجداول' : 'Delete All Schedules')),
+                    grades.length > 0 && React.createElement("div", { style: { display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' } },
+                        React.createElement("span", { style: { fontSize: 11, color: '#94a3b8', marginRight: 2 } }, isAr ? 'تصفية:' : 'Filter:'),
+                        React.createElement("button", {
+                            className: `btn bsm ${!gradeFilter ? 'btnp' : 'btng'}`,
+                            style: { fontSize: 11, padding: '2px 10px' },
+                            onClick: () => setGradeFilter('')
+                        }, isAr ? 'الكل' : 'All'),
+                        grades.map(g => React.createElement("button", {
+                            key: g,
+                            className: `btn bsm ${gradeFilter === String(g) ? 'btnp' : 'btng'}`,
+                            style: { fontSize: 11, padding: '2px 10px' },
+                            onClick: () => setGradeFilter(gradeFilter === String(g) ? '' : String(g))
+                        }, `G${g}`)))));
             })(),
             React.createElement("div", { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 } },
                 React.createElement("div", { className: "card" },
@@ -11548,7 +11578,8 @@ function TDSchedule({ data, teachers, isAr }) {
                                 React.createElement("div", { style: { fontSize: 10, color: '#3b82f6', marginTop: 2 } }, isAr ? '← اضغط لعرض الجدول' : '← tap to view schedule')));
                         }),
                         q.trim() && results.length === 0 && React.createElement("div", { style: { fontSize: 12, color: '#94a3b8' } }, isAr ? 'لا يوجد' : 'No match'),
-                        !q.trim() && React.createElement("div", { style: { fontSize: 12, color: '#94a3b8' } }, isAr ? `اليوم: ${today || 'عطلة نهاية الأسبوع'}` : `Today: ${today || 'Weekend'}`))),
+                        !q.trim() && !gradeFilter && React.createElement("div", { style: { fontSize: 12, color: '#94a3b8' } }, isAr ? `اليوم: ${today || 'عطلة نهاية الأسبوع'}` : `Today: ${today || 'Weekend'}`),
+                        !q.trim() && gradeFilter && teachersByGrade.length === 0 && React.createElement("div", { style: { fontSize: 12, color: '#94a3b8' } }, isAr ? 'لا يوجد معلمون لهذا الصف' : 'No teachers found for this grade'))),
                 React.createElement("div", { className: "card" },
                     React.createElement("div", { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 } },
                         React.createElement("strong", { style: { fontSize: 13 } },
