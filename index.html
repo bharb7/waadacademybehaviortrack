@@ -11245,187 +11245,158 @@ function TDDutyCheck({ data, teachers, user, isAr }) {
                         React.createElement("td", { colSpan: 7, style: { textAlign: 'center', color: '#94a3b8', padding: 24 } }, teachers.length === 0 ? (isAr ? 'لا يوجد معلمون بعد' : 'No teachers yet') : (isAr ? 'لا نتائج مطابقة' : 'No matching teachers')))))),
         manage && React.createElement(TypeListManager, { data: data, configKey: "dutyStatuses", defaults: DUTY_STATUSES, title: isAr ? 'تعديل حالات المناوبة' : 'Manage Duty Statuses', isAr: isAr, hasPositive: true, onClose: () => setManage(false) })));
 }
-function TDSchedule({ data, teachers, isAr }) {
-    // ── Period time constants (ground truth from school document) ──
-    const PERIODS_PRIMARY = [
-        { label: 'Period 1',        start: '08:00', end: '09:00' },
-        { label: 'Break 1',         start: '09:00', end: '09:25', isBreak: true },
-        { label: 'Period 2',        start: '09:25', end: '10:25' },
-        { label: 'Period 3',        start: '10:25', end: '11:20' },
-        { label: 'Break 2',         start: '11:20', end: '11:45', isBreak: true },
-        { label: 'Period 4',        start: '11:45', end: '12:40' },
-        { label: 'Prayer Break',    start: '12:40', end: '13:00', isBreak: true },
-        { label: 'Period 5',        start: '13:00', end: '13:45' },
-        { label: 'Period 6',        start: '13:45', end: '14:30' },
-        { label: 'Dismissal',       start: '14:30', end: '14:45', isBreak: true },
+function TDSchedule(_a) {
+    var data = _a.data, teachers = _a.teachers, isAr = _a.isAr;
+    var PERIODS_PRIMARY = [
+        { label: 'Period 1', start: '08:00', end: '09:00', isBreak: false },
+        { label: 'Break 1 (25 min)', start: '09:00', end: '09:25', isBreak: true },
+        { label: 'Period 2', start: '09:25', end: '10:25', isBreak: false },
+        { label: 'Period 3', start: '10:25', end: '11:20', isBreak: false },
+        { label: 'Break 2 (15 min)', start: '11:20', end: '11:45', isBreak: true },
+        { label: 'Period 4', start: '11:45', end: '12:40', isBreak: false },
+        { label: 'Prayer Break (20 min)', start: '12:40', end: '13:00', isBreak: true },
+        { label: 'Period 5', start: '13:00', end: '13:45', isBreak: false },
+        { label: 'Period 6', start: '13:45', end: '14:30', isBreak: false },
+        { label: 'Dismissal', start: '14:30', end: '14:45', isBreak: true },
     ];
-    const PERIODS_SECONDARY = [
-        { label: 'Period 1',        start: '08:00', end: '09:00' },
-        { label: 'Period 2',        start: '09:00', end: '10:00' },
-        { label: 'Break',           start: '10:00', end: '10:30', isBreak: true },
-        { label: 'Period 3',        start: '10:30', end: '11:30' },
-        { label: 'Period 4',        start: '11:30', end: '12:30' },
-        { label: 'Prayer Break',    start: '12:25', end: '12:50', isBreak: true },
-        { label: 'Period 5',        start: '12:50', end: '13:40' },
-        { label: 'Period 6',        start: '13:40', end: '14:30' },
-        { label: 'Dismissal',       start: '14:30', end: '14:45', isBreak: true },
+    var PERIODS_SECONDARY = [
+        { label: 'Period 1', start: '08:00', end: '09:00', isBreak: false },
+        { label: 'Period 2', start: '09:00', end: '10:00', isBreak: false },
+        { label: 'Break (30 min)', start: '10:00', end: '10:30', isBreak: true },
+        { label: 'Period 3', start: '10:30', end: '11:30', isBreak: false },
+        { label: 'Period 4', start: '11:30', end: '12:30', isBreak: false },
+        { label: 'Prayer Break (25 min)', start: '12:25', end: '12:50', isBreak: true },
+        { label: 'Period 5', start: '12:50', end: '13:40', isBreak: false },
+        { label: 'Period 6', start: '13:40', end: '14:30', isBreak: false },
+        { label: 'Dismissal', start: '14:30', end: '14:45', isBreak: true },
     ];
-
-    // ── Break supervision data (hardcoded from official documents) ──
-    const SUPERVISION_G7_12 = {
+    var SUPERVISION_G7_12 = {
         Sun: { canteen: ['S. Najah', 'Y. Zahreddine'], corridor: ['O. Abdouni', 'S. Alkarim'], autorim: ['I. Asghar', 'M. Akhtar'] },
         Mon: { canteen: ['M. Zafar'], corridor: ['M. Lukie', 'J. Golandaz'], autorim: ['A. Hussein', 'Hussam', 'J. Golandaz'] },
         Tue: { canteen: ['N. Malik', 'S. Siddiqui'], corridor: ['M. Ramadan', 'I. Alqurashi'], autorim: ['A. Almaghrabi', 'A. Khalil'] },
         Wed: { canteen: ['M. Korkomaz'], corridor: ['A. Saleh', 'M. Ismail'], autorim: ['M. Saleh', 'A. Kiwan'] },
         Thu: { canteen: ['S. Shah'], corridor: ['M. Moe', 'S. Liaquat'], autorim: ['A. Alghamdi', 'A. Griss'] },
     };
-    const SUPERVISION_G4_6 = {
-        Sun: { atrium: ['Fahruddine', 'P.E', 'Dr.'], canteen: ['Alaa'], prayer: ['Omar.K', 'Saleh'], dismissal: 'Last Period Teacher' },
-        Mon: { atrium: ['New Math Teacher', 'P.E', 'Dr.'], canteen: ['Said Hussein'], prayer: ['Omar.K', 'Saleh'], dismissal: 'Last Period Teacher' },
-        Tue: { atrium: ['Mohamed Hilmi', 'P.E', 'Dr.'], canteen: ['Fouad'], prayer: ['Omar.K', 'Saleh'], dismissal: 'Last Period Teacher' },
-        Wed: { atrium: ['Abdulrahman Jileni', 'P.E', 'Dr.'], canteen: ['Hussein.B'], prayer: ['Omar.K', 'Saleh'], dismissal: 'Last Period Teacher' },
-        Thu: { atrium: ['George', 'P.E', 'Dr.'], canteen: ['Abdulfattah'], prayer: ['Omar.K', 'Saleh'], dismissal: 'Last Period Teacher' },
+    var SUPERVISION_G4_6 = {
+        Sun: { atrium: ['Fahruddine', 'P.E', 'Dr.'], canteen: ['Alaa'], prayer: ['Omar.K', 'Saleh'] },
+        Mon: { atrium: ['New Math Teacher', 'P.E', 'Dr.'], canteen: ['Said Hussein'], prayer: ['Omar.K', 'Saleh'] },
+        Tue: { atrium: ['Mohamed Hilmi', 'P.E', 'Dr.'], canteen: ['Fouad'], prayer: ['Omar.K', 'Saleh'] },
+        Wed: { atrium: ['Abdulrahman Jileni', 'P.E', 'Dr.'], canteen: ['Hussein.B'], prayer: ['Omar.K', 'Saleh'] },
+        Thu: { atrium: ['George', 'P.E', 'Dr.'], canteen: ['Abdulfattah'], prayer: ['Omar.K', 'Saleh'] },
     };
-    const AFTER_DISMISSAL = { Sun: 'M. Said', Mon: 'Rayan', Tue: 'Grade 6 Supervisor', Wed: 'Omar', Thu: 'Hamza' };
-    const FRONT_GATE = 'Mr. Alaa • Finger 5: Mr. Omar • Finger 4: Mr. M. Said';
-
-    // ── State ──
-    const [schedView, setSchedView] = React.useState('teacher'); // 'teacher' | 'class' | 'duties'
-    const [selT, setSelT] = React.useState('');
-    const [tSearch, setTSearch] = React.useState('');
-    const [tDropOpen, setTDropOpen] = React.useState(false);
-    const [locSearch, setLocSearch] = React.useState('');
-    const [form, setForm] = React.useState({ day: 'Sun', start: '08:00', end: '09:00', type: 'class', label: '', location: '' });
-    const [editingId, setEditingId] = React.useState(null);
-    const [selClass, setSelClass] = React.useState('');
-    const [classSearch, setClassSearch] = React.useState('');
-    const [gradeFilter, setGradeFilter] = React.useState('');
-    const [dutyDay, setDutyDay] = React.useState('Sun');
-    const tRef = React.useRef(null);
-    const locRef = React.useRef(null);
-
-    React.useEffect(() => {
-        const h = e => {
-            if (tRef.current && !tRef.current.contains(e.target)) setTDropOpen(false);
-        };
+    var AFTER_DISMISSAL = { Sun: 'M. Said', Mon: 'Rayan', Tue: 'Grade 6 Supervisor', Wed: 'Omar', Thu: 'Hamza' };
+    var FRONT_GATE = 'Mr. Alaa \u2022 Finger 5: Mr. Omar \u2022 Finger 4: Mr. M. Said';
+    var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'];
+    var DAYS_LABEL = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday' };
+    var DAYS_AR = { Sun: '\u0627\u0644\u0623\u062d\u062f', Mon: '\u0627\u0644\u0627\u062b\u0646\u064a\u0646', Tue: '\u0627\u0644\u062b\u0644\u0627\u062b\u0627\u0621', Wed: '\u0627\u0644\u0623\u0631\u0628\u0639\u0627\u0621', Thu: '\u0627\u0644\u062e\u0645\u064a\u0633' };
+    var dayLabel = function(d) { return isAr ? (DAYS_AR[d] || d) : (DAYS_LABEL[d] || d); };
+    var _b = React.useState('teacher'), schedView = _b[0], setSchedView = _b[1];
+    var _c = React.useState(''), selT = _c[0], setSelT = _c[1];
+    var _d = React.useState(''), tSearch = _d[0], setTSearch = _d[1];
+    var _e = React.useState(false), tDropOpen = _e[0], setTDropOpen = _e[1];
+    var _f = React.useState(''), locSearch = _f[0], setLocSearch = _f[1];
+    var _g = React.useState({ day: 'Sun', start: '08:00', end: '09:00', type: 'class', label: '', location: '' }), form = _g[0], setForm = _g[1];
+    var _h = React.useState(null), editingId = _h[0], setEditingId = _h[1];
+    var _i = React.useState(''), selClass = _i[0], setSelClass = _i[1];
+    var _j = React.useState(''), classSearch = _j[0], setClassSearch = _j[1];
+    var _k = React.useState(''), gradeFilter = _k[0], setGradeFilter = _k[1];
+    var _l = React.useState('Sun'), dutyDay = _l[0], setDutyDay = _l[1];
+    var tRef = React.useRef(null);
+    React.useEffect(function() {
+        var h = function(e) { if (tRef.current && !tRef.current.contains(e.target)) setTDropOpen(false); };
         document.addEventListener('mousedown', h);
-        return () => document.removeEventListener('mousedown', h);
+        return function() { document.removeEventListener('mousedown', h); };
     }, []);
-
-    const sched = data.teacherSchedule || {};
-
-    // ── Helpers ──
-    const timeToMin = t => {
+    var sched = data.teacherSchedule || {};
+    var timeToMin = function(t) {
         if (!t) return null;
-        const m = t.match(/(\d+):(\d+)/);
+        var m = t.match(/(\d+):(\d+)/);
         return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : null;
     };
-    const nowMin = () => {
-        const d = new Date();
-        return d.getHours() * 60 + d.getMinutes();
+    var nowMin = function() { var d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
+    var todayKey = function() { return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][new Date().getDay()]; };
+    var currentEntry = function(tid) {
+        var entries = Object.values(sched[tid] || {});
+        var today = todayKey(); var nm = nowMin();
+        return entries.find(function(e) { return e.day === today && timeToMin(e.start) <= nm && timeToMin(e.end) > nm; }) || null;
     };
-    const todayKey = () => {
-        const day = new Date().getDay(); // 0=Sun
-        return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][day];
-    };
-    const DAYS_AR = { Sun: 'الأحد', Mon: 'الاثنين', Tue: 'الثلاثاء', Wed: 'الأربعاء', Thu: 'الخميس' };
-    const DAYS_LABEL = { Sun: 'Sunday', Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday' };
-    const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu'];
-    const dayLabel = d => isAr ? (DAYS_AR[d] || d) : (DAYS_LABEL[d] || d);
-
-    const currentEntry = (tid) => {
-        const entries = Object.values(sched[tid] || {});
-        const today = todayKey();
-        const nm = nowMin();
-        return entries.find(e => e.day === today && timeToMin(e.start) <= nm && timeToMin(e.end) > nm) || null;
-    };
-
-    // ── Class index for By Class view ──
-    const CLASS_LOC_RE = /^\d+\s+(Blue|Green|Orange|Red|Yellow|Purple|Brown)$/i;
-    const isRealClass = loc => CLASS_LOC_RE.test((loc || '').trim());
-    const classIndex = React.useMemo(() => {
-        const idx = {};
-        Object.entries(sched).forEach(([tid, entries]) => {
-            const t = teachers.find(x => x.id === tid);
+    var CLASS_LOC_RE = /^\d+\s+(Blue|Green|Orange|Red|Yellow|Purple|Brown)$/i;
+    var isRealClass = function(loc) { return CLASS_LOC_RE.test((loc || '').trim()); };
+    var classIndex = React.useMemo(function() {
+        var idx = {};
+        Object.entries(sched).forEach(function(_a) {
+            var tid = _a[0], entries = _a[1];
+            var t = teachers.find(function(x) { return x.id === tid; });
             if (!t) return;
-            Object.values(entries).forEach(e => {
-                const loc = (e.location || '').trim();
+            Object.values(entries).forEach(function(e) {
+                var loc = (e.location || '').trim();
                 if (!loc || !isRealClass(loc)) return;
                 if (!idx[loc]) idx[loc] = [];
-                idx[loc].push({ teacher: t, day: e.day, start: e.start, end: e.end, label: e.label, type: e.type, location: loc, id: e.id, tid });
+                idx[loc].push({ teacher: t, day: e.day, start: e.start, end: e.end, label: e.label, type: e.type, location: loc, id: e.id, tid: tid });
             });
         });
         return idx;
     }, [sched, teachers]);
-    const allClasses = Object.keys(classIndex).sort((a, b) => {
-        const [an, ac] = [parseInt(a), a.split(' ')[1] || ''];
-        const [bn, bc] = [parseInt(b), b.split(' ')[1] || ''];
+    var allClasses = Object.keys(classIndex).sort(function(a, b) {
+        var an = parseInt(a), ac = a.split(' ')[1] || '';
+        var bn = parseInt(b), bc = b.split(' ')[1] || '';
         return an !== bn ? an - bn : ac.localeCompare(bc);
     });
-    const filteredClasses = classSearch.trim() ? allClasses.filter(c => c.toLowerCase().includes(classSearch.toLowerCase())) : allClasses;
-
-    // ── Teacher filters ──
-    const filteredTeachers = teachers.filter(t => t.name.toLowerCase().includes(tSearch.toLowerCase()));
-    const teachersByGrade = gradeFilter
-        ? teachers.filter(t => (t.grades || []).includes('G' + gradeFilter) || Object.values(sched[t.id] || {}).some(e => (e.location || '').startsWith(gradeFilter + ' ')))
-        : teachers;
-
-    // ── Locator search results ──
-    const locResults = React.useMemo(() => {
+    var filteredClasses = classSearch.trim() ? allClasses.filter(function(c) { return c.toLowerCase().includes(classSearch.toLowerCase()); }) : allClasses;
+    var filteredTeachers = teachers.filter(function(t) { return t.name.toLowerCase().includes(tSearch.toLowerCase()); });
+    var locResults = React.useMemo(function() {
         if (!locSearch.trim()) return [];
-        const q = locSearch.toLowerCase();
-        const today = todayKey();
-        const nm = nowMin();
-        return teachers
-            .filter(t => t.name.toLowerCase().includes(q))
-            .map(t => {
-                const cur = currentEntry(t.id);
-                const todayEntries = Object.values(sched[t.id] || {}).filter(e => e.day === today).sort((a, b) => timeToMin(a.start) - timeToMin(b.start));
-                const next = todayEntries.find(e => timeToMin(e.start) > nm);
-                return { t, cur, next, todayEntries };
-            });
+        var q = locSearch.toLowerCase();
+        var today = todayKey(); var nm = nowMin();
+        return teachers.filter(function(t) { return t.name.toLowerCase().includes(q); }).map(function(t) {
+            var cur = currentEntry(t.id);
+            var todayEntries = Object.values(sched[t.id] || {}).filter(function(e) { return e.day === today; }).sort(function(a,b) { return timeToMin(a.start) - timeToMin(b.start); });
+            var next = todayEntries.find(function(e) { return timeToMin(e.start) > nm; });
+            return { t: t, cur: cur, next: next };
+        });
     }, [locSearch, sched, teachers]);
-
-    const pickTeacher = t => { setSelT(t.id); setTSearch(t.name); setTDropOpen(false); };
-    const cancelEdit = () => { setEditingId(null); setForm(p => ({ ...p, label: '', location: '' })); };
-
-    const saveEntry = () => {
-        if (!selT || !form.label.trim()) { alert(isAr ? 'اختر معلم وأدخل التفاصيل' : 'Select a teacher and enter details'); return; }
-        const id = editingId || uid();
-        db.ref(`/btpro/teacherSchedule/${selT}/${id}`).set({ ...form, id });
-        setForm(p => ({ ...p, label: '', location: '' }));
+    var pickTeacher = function(t) { setSelT(t.id); setTSearch(t.name); setTDropOpen(false); };
+    var cancelEdit = function() { setEditingId(null); setForm(function(p) { return Object.assign(Object.assign({}, p), { label: '', location: '' }); }); };
+    var saveEntry = function() {
+        if (!selT || !form.label.trim()) { alert(isAr ? '\u0627\u062e\u062a\u0631 \u0645\u0639\u0644\u0645 \u0648\u0623\u062f\u062e\u0644 \u0627\u0644\u062a\u0641\u0627\u0635\u064a\u0644' : 'Select a teacher and enter details'); return; }
+        var id = editingId || uid();
+        db.ref('/btpro/teacherSchedule/' + selT + '/' + id).set(Object.assign(Object.assign({}, form), { id: id }));
+        setForm(function(p) { return Object.assign(Object.assign({}, p), { label: '', location: '' }); });
         setEditingId(null);
     };
-    const startEdit = (tid, e) => { setSelT(tid); const t = teachers.find(x => x.id === tid); if (t) { setTSearch(t.name); setTDropOpen(false); } setEditingId(e.id); setForm({ day: e.day, start: e.start, end: e.end, type: e.type, label: e.label, location: e.location || '' }); };
-    const delEntry = (tid, id) => { db.ref(`/btpro/teacherSchedule/${tid}/${id}`).remove(); if (editingId === id) cancelEdit(); };
-
-    // ── resolveTeacher (improved fuzzy match) ──
-    const resolveTeacher = normTN => {
+    var startEdit = function(tid, e) {
+        setSelT(tid);
+        var t = teachers.find(function(x) { return x.id === tid; });
+        if (t) { setTSearch(t.name); setTDropOpen(false); }
+        setEditingId(e.id);
+        setForm({ day: e.day, start: e.start, end: e.end, type: e.type, label: e.label, location: e.location || '' });
+    };
+    var delEntry = function(tid, id) { db.ref('/btpro/teacherSchedule/' + tid + '/' + id).remove(); if (editingId === id) cancelEdit(); };
+    var resolveTeacher = function(normTN) {
         if (!normTN) return null;
-        const clean = s => s.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
-        const tnC = clean(normTN);
-        const tnParts = tnC.split(' ');
-        const tnInit = tnParts[0][0] || '';
-        const tnLast = tnParts[tnParts.length - 1] || '';
-        const tnSurname = tnParts.slice(1).join(' ');
-        let bestScore = 0;
-        let bestTeacher = null;
-        teachers.forEach(t => {
-            const tC = clean(t.name);
-            const tParts = tC.split(' ');
-            const tFirst = tParts[0] || '';
-            const tFirstInit = tFirst[0] || '';
-            const tLast = tParts[tParts.length - 1] || '';
-            const tSurname = tParts.slice(1).join(' ');
-            let score = 0;
+        var clean = function(s) { return s.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim(); };
+        var tnC = clean(normTN);
+        var tnParts = tnC.split(' ');
+        var tnInit = tnParts[0][0] || '';
+        var tnLast = tnParts[tnParts.length - 1] || '';
+        var tnSurname = tnParts.slice(1).join(' ');
+        var bestScore = 0, bestTeacher = null;
+        teachers.forEach(function(t) {
+            var tC = clean(t.name);
+            var tParts = tC.split(' ');
+            var tFirst = tParts[0] || '';
+            var tFirstInit = tFirst[0] || '';
+            var tLast = tParts[tParts.length - 1] || '';
+            var tSurname = tParts.slice(1).join(' ');
+            var score = 0;
             if (tC === tnC) score = 100;
             else if (tC.includes(tnC) || tnC.includes(tC)) score = 90;
             else {
-                const initMatch = (tnInit === tFirstInit || tnInit === tFirst);
-                const lastMatch = tLast === tnLast && tnLast.length > 2;
-                const surnameMatch = tSurname && tnSurname && (tSurname === tnSurname || tSurname.includes(tnSurname) || tnSurname.includes(tSurname)) && tnSurname.length > 2;
-                const anyTokenMatch = tnParts.some(tok => tok.length > 3 && tParts.includes(tok));
-                const surnameOnlyMatch = tnParts.length === 1 && tLast === tnC && tnC.length > 3;
+                var initMatch = (tnInit === tFirstInit || tnInit === tFirst);
+                var lastMatch = tLast === tnLast && tnLast.length > 2;
+                var surnameMatch = tSurname && tnSurname && (tSurname === tnSurname || tSurname.includes(tnSurname) || tnSurname.includes(tSurname)) && tnSurname.length > 2;
+                var anyTokenMatch = tnParts.some(function(tok) { return tok.length > 3 && tParts.includes(tok); });
+                var surnameOnlyMatch = tnParts.length === 1 && tLast === tnC && tnC.length > 3;
                 if (initMatch && lastMatch) score = 88;
                 else if (initMatch && surnameMatch) score = 85;
                 else if (lastMatch && tLast.length > 4) score = 80;
@@ -11437,251 +11408,208 @@ function TDSchedule({ data, teachers, isAr }) {
         });
         return bestScore >= 65 ? bestTeacher : null;
     };
-
-    // ── Print helpers ──
-    const buildScheduleHtml = (t) => {
-        const entries = Object.values(sched[t.id] || {});
-        const byDay = {};
-        DAYS.forEach(d => byDay[d] = entries.filter(e => e.day === d).sort((a, b) => timeToMin(a.start) - timeToMin(b.start)));
-        const cols = DAYS.map(d => {
-            const rows = byDay[d].map(e => `<tr><td style="font-size:11px;white-space:nowrap;padding:3px 6px;border:1px solid #e2e8f0">${e.start}–${e.end}</td><td style="font-size:11px;padding:3px 6px;border:1px solid #e2e8f0">${e.label}</td><td style="font-size:10px;color:#64748b;padding:3px 6px;border:1px solid #e2e8f0">${e.location || ''}</td></tr>`).join('');
-            return `<td style="vertical-align:top;padding:6px;border:1px solid #d1d5db;min-width:120px"><strong style="font-size:12px">${DAYS_LABEL[d]}</strong><table style="width:100%;border-collapse:collapse;margin-top:4px">${rows || '<tr><td style="color:#94a3b8;font-size:11px;padding:4px">—</td></tr>'}</table></td>`;
+    var buildScheduleHtml = function(t) {
+        var entries = Object.values(sched[t.id] || {});
+        var byDay = {};
+        DAYS.forEach(function(d) { byDay[d] = entries.filter(function(e) { return e.day === d; }).sort(function(a,b) { return timeToMin(a.start) - timeToMin(b.start); }); });
+        var cols = DAYS.map(function(d) {
+            var rows = byDay[d].map(function(e) { return '<tr><td style="font-size:11px;white-space:nowrap;padding:3px 6px;border:1px solid #e2e8f0">' + e.start + '\u2013' + e.end + '</td><td style="font-size:11px;padding:3px 6px;border:1px solid #e2e8f0">' + e.label + '</td><td style="font-size:10px;color:#64748b;padding:3px 6px;border:1px solid #e2e8f0">' + (e.location || '') + '</td></tr>'; }).join('');
+            return '<td style="vertical-align:top;padding:6px;border:1px solid #d1d5db;min-width:120px"><strong style="font-size:12px">' + DAYS_LABEL[d] + '</strong><table style="width:100%;border-collapse:collapse;margin-top:4px">' + (rows || '<tr><td style="color:#94a3b8;font-size:11px;padding:4px">\u2014</td></tr>') + '</table></td>';
         }).join('');
-        return `<table style="width:100%;border-collapse:collapse"><tr>${cols}</tr></table>`;
+        return '<table style="width:100%;border-collapse:collapse"><tr>' + cols + '</tr></table>';
     };
-    const printSchedule = () => {
-        const t = teachers.find(x => x.id === selT); if (!t) return;
-        const w = window.open('', '_blank'); if (!w) return;
-        w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>${t.name} — Schedule</title><style>@page{margin:12mm}body{font-family:'Segoe UI',sans-serif;margin:0;padding:16px}@media print{.noprint{display:none}}</style></head><body><img src="${typeof WAAD_HEADER_B64!=='undefined'?WAAD_HEADER_B64:''}" style="width:100%;max-width:700px;display:block;margin-bottom:16px"/><h2 style="margin:0 0 4px">${t.name} — Weekly Schedule</h2><p style="color:#64748b;font-size:12px;margin:0 0 12px">Waad Academy • ${new Date().toLocaleDateString()}</p>${buildScheduleHtml(t)}<br/><button class="noprint" onclick="window.print()" style="padding:8px 20px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer">🖨 Print</button></body></html>`);
+    var printSchedule = function() {
+        var t = teachers.find(function(x) { return x.id === selT; }); if (!t) return;
+        var w = window.open('', '_blank'); if (!w) return;
+        w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>' + t.name + ' \u2014 Schedule</title><style>@page{margin:12mm}body{font-family:"Segoe UI",sans-serif;margin:0;padding:16px}@media print{.noprint{display:none}}</style></head><body><img src="' + (typeof WAAD_HEADER_B64 !== 'undefined' ? WAAD_HEADER_B64 : '') + '" style="width:100%;max-width:700px;display:block;margin-bottom:16px"/><h2 style="margin:0 0 4px">' + t.name + ' \u2014 Weekly Schedule</h2><p style="color:#64748b;font-size:12px;margin:0 0 12px">Waad Academy \u2022 ' + new Date().toLocaleDateString() + '</p>' + buildScheduleHtml(t) + '<br/><button class="noprint" onclick="window.print()" style="padding:8px 20px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer">\uD83D\uDDB4 Print</button></body></html>');
         w.document.close();
     };
-    const printAllSchedules = () => {
-        const w = window.open('', '_blank'); if (!w) return;
-        const blocks = teachers.filter(t => sched[t.id] && Object.keys(sched[t.id]).length > 0).map(t => `<div style="page-break-after:always;padding:16px"><h2 style="margin:0 0 4px">${t.name}</h2>${buildScheduleHtml(t)}</div>`).join('');
-        w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>@page{margin:12mm}body{font-family:'Segoe UI',sans-serif;margin:0}@media print{.noprint{display:none}}</style></head><body><div class="noprint" style="padding:12px"><button onclick="window.print()" style="padding:8px 20px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer">🖨 Print All</button></div>${blocks}</body></html>`);
+    var printAllSchedules = function() {
+        var w = window.open('', '_blank'); if (!w) return;
+        var blocks = teachers.filter(function(t) { return sched[t.id] && Object.keys(sched[t.id]).length > 0; }).map(function(t) { return '<div style="page-break-after:always;padding:16px"><h2 style="margin:0 0 4px">' + t.name + '</h2>' + buildScheduleHtml(t) + '</div>'; }).join('');
+        w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>@page{margin:12mm}body{font-family:"Segoe UI",sans-serif;margin:0}@media print{.noprint{display:none}}</style></head><body><div class="noprint" style="padding:12px"><button onclick="window.print()" style="padding:8px 20px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer">\uD83D\uDDB4 Print All</button></div>' + blocks + '</body></html>');
         w.document.close();
     };
-
-    const totalTeachersScheduled = Object.keys(sched).length;
-    const totalSlots = Object.values(sched).reduce((s, e) => s + Object.keys(e).length, 0);
-
-    // ── Period chip style ──
-    const chipStyle = (isBreak) => ({ display:'inline-block', padding:'2px 8px', borderRadius:12, fontSize:11, fontWeight:600, background: isBreak ? '#fef3c7' : '#eff6ff', color: isBreak ? '#92400e' : '#1e40af', marginRight:4 });
-
-    // ── Render ──
+    var totalScheduled = Object.keys(sched).length;
+    var totalSlots = Object.values(sched).reduce(function(s, e) { return s + Object.keys(e).length; }, 0);
+    var chipSt = function(isB) { return { display:'inline-block', padding:'2px 8px', borderRadius:12, fontSize:11, fontWeight:600, background: isB ? '#fef3c7' : '#eff6ff', color: isB ? '#92400e' : '#1e40af', marginRight:4 }; };
+    var dayBtnSt = function(active) { return { padding:'6px 14px', borderRadius:8, border:'1px solid ' + (active?'#1a73e8':'#d1d5db'), background: active?'#1a73e8':'#fff', color: active?'#fff':'#374151', fontWeight: active?700:400, cursor:'pointer', fontSize:13, fontFamily:'inherit' }; };
+    var periodRowSt = function(isB) { return { display:'flex', justifyContent:'space-between', padding:'4px 8px', borderRadius:5, marginBottom:2, background: isB ? '#fef3c7' : '#f8fafc', fontSize:12 }; };
+    var zoneCardSt = function(bg, border) { return { background:bg, border:'1.5px solid ' + border, borderRadius:10, padding:12 }; };
     return React.createElement('div', null,
-
-        // ── Tab bar ──
-        React.createElement('div', { style: { display:'flex', gap:8, marginBottom:14, alignItems:'center', flexWrap:'wrap' } },
-            ['teacher','class','duties'].map(v => React.createElement('button', {
-                key: v,
-                className: `btn bsm ${schedView === v ? 'btnp' : 'btng'}`,
-                onClick: () => setSchedView(v)
-            }, v === 'teacher' ? (isAr ? '👤 بالمعلم' : '👤 By Teacher') : v === 'class' ? (isAr ? '🏫 بالفصل' : '🏫 By Class') : (isAr ? '☕ المناوبات' : '☕ Break Duties'))),
-            React.createElement('span', { style:{ fontSize:12, color:'#64748b', marginLeft:'auto' } },
-                `📋 ${totalTeachersScheduled} ${isAr?'معلم':'teacher(s)'} • ${totalSlots} ${isAr?'حصة':'slot(s)'}`),
-            React.createElement('button', { className:'btn btnd bsm', onClick:() => { if(window.confirm(isAr?'تحذير: سيتم حذف جميع الجداول. هل أنت متأكد؟':'⚠️ Delete ALL schedules? This cannot be undone.')) db.ref('/btpro/teacherSchedule').remove(); } },
-                isAr ? '🗑 حذف الكل' : '🗑 Delete All')
+        React.createElement('div', { style:{ display:'flex', gap:8, marginBottom:14, alignItems:'center', flexWrap:'wrap' } },
+            ['teacher','class','duties'].map(function(v) {
+                return React.createElement('button', { key:v, style: dayBtnSt(schedView===v), onClick:function() { setSchedView(v); } },
+                    v==='teacher' ? (isAr?'\uD83D\uDC64 \u0628\u0627\u0644\u0645\u0639\u0644\u0645':'\uD83D\uDC64 By Teacher') :
+                    v==='class'   ? (isAr?'\uD83C\uDFEB \u0628\u0627\u0644\u0641\u0635\u0644':'\uD83C\uDFEB By Class') :
+                                    (isAr?'\u2615 \u0627\u0644\u0645\u0646\u0627\u0648\u0628\u0627\u062a':'\u2615 Break Duties'));
+            }),
+            React.createElement('span', { style:{ fontSize:12, color:'#64748b', marginLeft:'auto' } }, '\uD83D\uDCCB ' + totalScheduled + ' teacher(s) \u2022 ' + totalSlots + ' slot(s)'),
+            React.createElement('button', { className:'btn btnd bsm', onClick:function() { if(window.confirm('\u26A0\uFE0F Delete ALL schedules? This cannot be undone.')) db.ref('/btpro/teacherSchedule').remove(); } }, '\uD83D\uDDD1 Delete All')
         ),
 
-        // ════════════════════════════════════════════
-        // VIEW 1: BY TEACHER
-        // ════════════════════════════════════════════
         schedView === 'teacher' && React.createElement('div', { style:{ display:'grid', gridTemplateColumns:'260px 1fr', gap:14 } },
-
-            // Left: locator + teacher list
             React.createElement('div', null,
-                // Locator search
                 React.createElement('div', { className:'card', style:{ padding:14, marginBottom:10 } },
-                    React.createElement('div', { style:{ fontWeight:700, fontSize:13, marginBottom:8 } }, isAr ? '🔍 محدد الموقع الآن' : '🔍 Live Locator'),
-                    React.createElement('input', { placeholder: isAr?'ابحث عن معلم...':'Search teacher...', value:locSearch, onChange:e=>setLocSearch(e.target.value), style:{ width:'100%', boxSizing:'border-box', marginBottom:6 } }),
-                    locSearch.trim() && locResults.length === 0 && React.createElement('div', { style:{fontSize:12,color:'#94a3b8'} }, isAr?'لا يوجد':'No match'),
-                    locResults.map(({t, cur, next}) => React.createElement('div', { key:t.id, style:{ padding:'8px 10px', borderRadius:8, border:'1px solid #e2e8f0', marginBottom:6, cursor:'pointer', background: cur ? '#f0fdf4':'#fff' }, onClick:()=>{ setSelT(t.id); setTSearch(t.name); setLocSearch(''); } },
-                        React.createElement('div', { style:{fontWeight:600, fontSize:13} }, t.name),
-                        cur
-                            ? React.createElement('div', { style:{fontSize:12, color:'#16a34a'} }, `🟢 ${cur.label} @ ${cur.location || '—'} (${cur.start}–${cur.end})`)
-                            : React.createElement('div', { style:{fontSize:12, color:'#64748b'} }, isAr?'🟡 متاح الآن':'🟡 Free right now'),
-                        next && React.createElement('div', { style:{fontSize:11, color:'#94a3b8'} }, `⏭ Next: ${next.label} @ ${next.start}`)
-                    ))
+                    React.createElement('div', { style:{ fontWeight:700, fontSize:13, marginBottom:8 } }, isAr?'\uD83D\uDD0D \u0645\u062D\u062F\u062F \u0627\u0644\u0645\u0648\u0642\u0639 \u0627\u0644\u0622\u0646':'\uD83D\uDD0D Live Locator'),
+                    React.createElement('input', { placeholder: isAr?'\u0627\u0628\u062D\u062B \u0639\u0646 \u0645\u0639\u0644\u0645...':'Search teacher name...', value:locSearch, onChange:function(e){setLocSearch(e.target.value);}, style:{ width:'100%', boxSizing:'border-box', marginBottom:6, padding:'6px 10px', border:'1px solid #d1d5db', borderRadius:6, fontSize:13 } }),
+                    locSearch.trim() && locResults.length===0 && React.createElement('div', { style:{fontSize:12,color:'#94a3b8'} }, isAr?'\u0644\u0627 \u064A\u0648\u062C\u062F':'No match'),
+                    locResults.map(function(_a) {
+                        var t = _a.t, cur = _a.cur, next = _a.next;
+                        return React.createElement('div', { key:t.id, style:{ padding:'8px 10px', borderRadius:8, border:'1px solid #e2e8f0', marginBottom:6, cursor:'pointer', background: cur?'#f0fdf4':'#fff' }, onClick:function(){ setSelT(t.id); setTSearch(t.name); setLocSearch(''); } },
+                            React.createElement('div', { style:{fontWeight:600,fontSize:13} }, t.name),
+                            cur ? React.createElement('div', { style:{fontSize:12,color:'#16a34a'} }, '\uD83D\uDFE2 ' + cur.label + ' @ ' + (cur.location||'\u2014') + ' (' + cur.start + '\u2013' + cur.end + ')')
+                                : React.createElement('div', { style:{fontSize:12,color:'#64748b'} }, isAr?'\uD83D\uDFE1 \u0645\u062A\u0627\u062D \u0627\u0644\u0622\u0646':'\uD83D\uDFE1 Free right now'),
+                            next && React.createElement('div', { style:{fontSize:11,color:'#94a3b8'} }, '\u23ED Next: ' + next.label + ' @ ' + next.start)
+                        );
+                    })
                 ),
-
-                // Grade filter
                 React.createElement('div', { style:{marginBottom:8, display:'flex', gap:4, flexWrap:'wrap'} },
-                    ['','4','5','6','7','8','9','10','11','12'].map(g => React.createElement('button', { key:g, className:`btn bsm ${gradeFilter===g?'btnp':'btng'}`, onClick:()=>setGradeFilter(g) }, g===''?(isAr?'الكل':'All'):('G'+g)))
+                    ['','4','5','6','7','8','9','10','11','12'].map(function(g) {
+                        return React.createElement('button', { key:g, style: dayBtnSt(gradeFilter===g), onClick:function(){ setGradeFilter(g); } }, g===''?(isAr?'\u0627\u0644\u0643\u0644':'All'):('G'+g));
+                    })
                 ),
-
-                // Teacher list
                 React.createElement('div', { className:'card', style:{ padding:10, maxHeight:460, overflowY:'auto' } },
                     React.createElement('div', { style:{marginBottom:8} },
-                        React.createElement('input', { placeholder:isAr?'بحث...':'Filter teachers...', value:tSearch, onChange:e=>{ setTSearch(e.target.value); setTDropOpen(true); if(!e.target.value) setSelT(''); }, onFocus:()=>setTDropOpen(true), style:{ width:'100%', boxSizing:'border-box', fontSize:12 } })
+                        React.createElement('input', { placeholder:isAr?'\u0628\u062D\u062B...':'Filter teachers...', value:tSearch, onChange:function(e){ setTSearch(e.target.value); setTDropOpen(true); if(!e.target.value) setSelT(''); }, onFocus:function(){ setTDropOpen(true); }, style:{ width:'100%', boxSizing:'border-box', fontSize:12, padding:'6px 10px', border:'1px solid #d1d5db', borderRadius:6 } })
                     ),
-                    (gradeFilter ? teachersByGrade : filteredTeachers).filter(t => !tSearch.trim() || t.name.toLowerCase().includes(tSearch.toLowerCase())).map(t => {
-                        const cur = currentEntry(t.id);
-                        const hasSchedule = sched[t.id] && Object.keys(sched[t.id]).length > 0;
-                        return React.createElement('div', { key:t.id, onClick:()=>pickTeacher(t), style:{ padding:'8px 10px', borderRadius:7, cursor:'pointer', marginBottom:4, background: selT===t.id ? '#eff6ff' : '#f8fafc', border: selT===t.id ? '1.5px solid #1a73e8':'1px solid #e2e8f0' } },
-                            React.createElement('div', { style:{fontWeight:600, fontSize:13} }, t.name),
+                    filteredTeachers.map(function(t) {
+                        var cur = currentEntry(t.id);
+                        var hasSchedule = sched[t.id] && Object.keys(sched[t.id]).length > 0;
+                        return React.createElement('div', { key:t.id, onClick:function(){ pickTeacher(t); }, style:{ padding:'8px 10px', borderRadius:7, cursor:'pointer', marginBottom:4, background: selT===t.id?'#eff6ff':'#f8fafc', border: selT===t.id?'1.5px solid #1a73e8':'1px solid #e2e8f0' } },
+                            React.createElement('div', { style:{fontWeight:600,fontSize:13} }, t.name),
                             React.createElement('div', { style:{fontSize:11, color: cur?'#16a34a':'#94a3b8'} },
-                                cur ? `🟢 ${cur.label}` : (hasSchedule ? (isAr?'⚪ متاح الآن':'⚪ Free now') : (isAr?'— لا يوجد جدول':'— No schedule'))
+                                cur ? ('\uD83D\uDFE2 ' + cur.label) : (hasSchedule?(isAr?'\u26AA \u0645\u062A\u0627\u062D \u0627\u0644\u0622\u0646':'\u26AA Free now'):(isAr?'\u2014 \u0644\u0627 \u064A\u0648\u062C\u062F \u062C\u062F\u0648\u0644':'\u2014 No schedule'))
                             )
                         );
                     })
                 )
             ),
-
-            // Right: selected teacher schedule
             React.createElement('div', null,
-                selT && (() => {
-                    const t = teachers.find(x => x.id === selT);
+                selT && (function() {
+                    var t = teachers.find(function(x) { return x.id === selT; });
                     if (!t) return null;
-                    const entries = Object.values(sched[t.id] || {});
+                    var entries = Object.values(sched[t.id] || {});
                     return React.createElement('div', { className:'card' },
-                        React.createElement('div', { style:{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:12} },
+                        React.createElement('div', { style:{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:12} },
                             React.createElement('div', null,
-                                React.createElement('div', { style:{fontWeight:700, fontSize:15} }, `🗓 ${t.name} — ${isAr?'الجدول الأسبوعي':'Weekly Schedule'}`),
-                                React.createElement('div', { style:{fontSize:11, color:'#64748b', marginTop:2} }, isAr?'انقر لتعديل • × للحذف':'Click entry to edit • × to delete')
+                                React.createElement('div', { style:{fontWeight:700,fontSize:15} }, '\uD83D\uDCC5 ' + t.name + ' \u2014 ' + (isAr?'\u0627\u0644\u062C\u062F\u0648\u0644 \u0627\u0644\u0623\u0633\u0628\u0648\u0639\u064A':'Weekly Schedule')),
+                                React.createElement('div', { style:{fontSize:11,color:'#64748b',marginTop:2} }, isAr?'\u0627\u0646\u0642\u0631 \u0644\u062A\u0639\u062F\u064A\u0644 \u2022 \u00D7 \u0644\u0644\u062D\u0630\u0641':'Click to edit \u2022 \u00D7 to delete')
                             ),
-                            React.createElement('div', { style:{display:'flex', gap:6, flexWrap:'wrap'} },
-                                React.createElement('button', { className:'btn btng bsm', onClick:printSchedule }, `🖨 ${isAr?'طباعة':'Print'}`),
-                                React.createElement('button', { className:'btn btng bsm', onClick:printAllSchedules }, `🖨 ${isAr?'طباعة الكل':'Print All'}`),
-                                React.createElement('button', { className:'btn btnd bsm', onClick:()=>{ if(window.confirm(isAr?`حذف جدول ${t.name}؟`:`Clear ${t.name}'s schedule?`)) db.ref(`/btpro/teacherSchedule/${selT}`).remove(); } }, `🗑 ${isAr?'مسح':'Clear'}`)
+                            React.createElement('div', { style:{display:'flex',gap:6,flexWrap:'wrap'} },
+                                React.createElement('button', { className:'btn btng bsm', onClick:printSchedule }, '\uD83D\uDDB4 ' + (isAr?'\u0637\u0628\u0627\u0639\u0629':'Print')),
+                                React.createElement('button', { className:'btn btng bsm', onClick:printAllSchedules }, '\uD83D\uDDB4 ' + (isAr?'\u0637\u0628\u0627\u0639\u0629 \u0627\u0644\u0643\u0644':'Print All')),
+                                React.createElement('button', { className:'btn btnd bsm', onClick:function(){ if(window.confirm(isAr?('\u062D\u0630\u0641 \u062C\u062F\u0648\u0644 ' + t.name + '\u061F'):('Clear ' + t.name + "'s schedule?"))) db.ref('/btpro/teacherSchedule/' + selT).remove(); } }, '\uD83D\uDDD1 ' + (isAr?'\u0645\u0633\u062D':'Clear'))
                             )
                         ),
-                        // 5-day grid
-                        React.createElement('div', { style:{display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:8} },
-                            DAYS.map(d => {
-                                const dayEntries = entries.filter(e => e.day === d).sort((a,b) => timeToMin(a.start)-timeToMin(b.start));
-                                return React.createElement('div', { key:d, style:{background:'#f8fafc', borderRadius:8, padding:8, minHeight:80} },
-                                    React.createElement('div', { style:{fontWeight:700, fontSize:12, marginBottom:6, color:'#1a1a2e'} }, dayLabel(d)),
-                                    dayEntries.length === 0 && React.createElement('div', { style:{fontSize:11, color:'#cbd5e1', textAlign:'center', paddingTop:12} }, '—'),
-                                    dayEntries.map(e => React.createElement('div', { key:e.id, onClick:()=>startEdit(selT, e), style:{ background:'#fff', borderRadius:6, padding:'5px 7px', marginBottom:5, border:'1px solid #e2e8f0', cursor:'pointer', position:'relative' } },
-                                        React.createElement('div', { style:{display:'flex', justifyContent:'space-between', alignItems:'flex-start'} },
-                                            React.createElement('div', null,
-                                                React.createElement('span', { style:chipStyle(e.type==='duty') }, `${e.start}–${e.end}`),
-                                                React.createElement('span', { style:{fontSize:12, fontWeight:600} }, e.label)
+                        React.createElement('div', { style:{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8} },
+                            DAYS.map(function(d) {
+                                var dayEntries = entries.filter(function(e) { return e.day===d; }).sort(function(a,b){ return timeToMin(a.start)-timeToMin(b.start); });
+                                return React.createElement('div', { key:d, style:{background:'#f8fafc',borderRadius:8,padding:8,minHeight:80} },
+                                    React.createElement('div', { style:{fontWeight:700,fontSize:12,marginBottom:6,color:'#1a1a2e'} }, dayLabel(d)),
+                                    dayEntries.length===0 && React.createElement('div', { style:{fontSize:11,color:'#cbd5e1',textAlign:'center',paddingTop:12} }, '\u2014'),
+                                    dayEntries.map(function(e) {
+                                        return React.createElement('div', { key:e.id, onClick:function(){ startEdit(selT, e); }, style:{ background:'#fff',borderRadius:6,padding:'5px 7px',marginBottom:5,border:'1px solid #e2e8f0',cursor:'pointer' } },
+                                            React.createElement('div', { style:{display:'flex',justifyContent:'space-between',alignItems:'flex-start'} },
+                                                React.createElement('div', null,
+                                                    React.createElement('span', { style:chipSt(e.type==='duty') }, e.start + '\u2013' + e.end),
+                                                    React.createElement('span', { style:{fontSize:12,fontWeight:600} }, e.label)
+                                                ),
+                                                React.createElement('button', { onClick:function(ev){ ev.stopPropagation(); delEntry(selT,e.id); }, style:{background:'#fee2e2',border:'none',borderRadius:4,color:'#dc2626',cursor:'pointer',padding:'1px 5px',fontSize:11,flexShrink:0} }, '\u00D7')
                                             ),
-                                            React.createElement('button', { onClick:(ev)=>{ ev.stopPropagation(); delEntry(selT, e.id); }, style:{background:'#fee2e2', border:'none', borderRadius:4, color:'#dc2626', cursor:'pointer', padding:'1px 5px', fontSize:11, flexShrink:0} }, '×')
-                                        ),
-                                        e.location && React.createElement('div', { style:{fontSize:10, color:'#64748b', marginTop:2} }, `📍 ${e.location}`)
-                                    ))
+                                            e.location && React.createElement('div', { style:{fontSize:10,color:'#64748b',marginTop:2} }, '\uD83D\uDCCD ' + e.location)
+                                        );
+                                    })
                                 );
                             })
                         ),
-
-                        // Add/Edit form
-                        React.createElement('div', { style:{marginTop:14, paddingTop:14, borderTop:'1px solid #e2e8f0'} },
-                            React.createElement('div', { style:{fontWeight:600, fontSize:13, marginBottom:10} }, editingId ? `✏️ ${isAr?'تعديل':'Edit Entry'}` : `➕ ${isAr?'إضافة حصة':'Add Entry'}`),
-                            React.createElement('div', { className:'fr fr3' },
-                                React.createElement('div', null,
-                                    React.createElement('label', null, isAr?'اليوم':'Day'),
-                                    React.createElement('select', { value:form.day, onChange:e=>setForm(p=>({...p,day:e.target.value})) },
-                                        DAYS.map(d => React.createElement('option', { key:d, value:d }, dayLabel(d)))
-                                    )
-                                ),
-                                React.createElement('div', null,
-                                    React.createElement('label', null, isAr?'من':'Start'),
-                                    React.createElement('input', { type:'time', value:form.start, onChange:e=>setForm(p=>({...p,start:e.target.value})) })
-                                ),
-                                React.createElement('div', null,
-                                    React.createElement('label', null, isAr?'إلى':'End'),
-                                    React.createElement('input', { type:'time', value:form.end, onChange:e=>setForm(p=>({...p,end:e.target.value})) })
-                                )
+                        React.createElement('div', { style:{marginTop:14,paddingTop:14,borderTop:'1px solid #e2e8f0'} },
+                            React.createElement('div', { style:{fontWeight:600,fontSize:13,marginBottom:10} }, editingId?('\u270F\uFE0F '+(isAr?'\u062A\u0639\u062F\u064A\u0644':'Edit Entry')):('+ '+(isAr?'\u0625\u0636\u0627\u0641\u0629 \u062D\u0635\u0629':'Add Entry'))),
+                            React.createElement('div', { style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:8} },
+                                React.createElement('div', null, React.createElement('label', { style:{display:'block',fontSize:12,marginBottom:3} }, isAr?'\u0627\u0644\u064A\u0648\u0645':'Day'), React.createElement('select', { value:form.day, onChange:function(e){ setForm(function(p){ return Object.assign(Object.assign({},p),{day:e.target.value}); }); }, style:{width:'100%'} }, DAYS.map(function(d){ return React.createElement('option',{key:d,value:d},dayLabel(d)); }))),
+                                React.createElement('div', null, React.createElement('label', { style:{display:'block',fontSize:12,marginBottom:3} }, isAr?'\u0645\u0646':'Start'), React.createElement('input', { type:'time', value:form.start, onChange:function(e){ setForm(function(p){ return Object.assign(Object.assign({},p),{start:e.target.value}); }); }, style:{width:'100%'} })),
+                                React.createElement('div', null, React.createElement('label', { style:{display:'block',fontSize:12,marginBottom:3} }, isAr?'\u0625\u0644\u0649':'End'), React.createElement('input', { type:'time', value:form.end, onChange:function(e){ setForm(function(p){ return Object.assign(Object.assign({},p),{end:e.target.value}); }); }, style:{width:'100%'} }))
                             ),
-                            React.createElement('div', { className:'fr fr3' },
-                                React.createElement('div', null,
-                                    React.createElement('label', null, isAr?'النوع':'Type'),
-                                    React.createElement('select', { value:form.type, onChange:e=>setForm(p=>({...p,type:e.target.value})) },
-                                        React.createElement('option', { value:'class' }, isAr?'حصة':'Class'),
-                                        React.createElement('option', { value:'duty' }, isAr?'مناوبة':'Duty')
-                                    )
-                                ),
-                                React.createElement('div', null,
-                                    React.createElement('label', null, isAr?'الوصف':'Label'),
-                                    React.createElement('input', { value:form.label, onChange:e=>setForm(p=>({...p,label:e.target.value})), placeholder:isAr?'مثال: رياضيات':'e.g. Math G7' })
-                                ),
-                                React.createElement('div', null,
-                                    React.createElement('label', null, isAr?'الموقع':'Location'),
-                                    React.createElement('input', { value:form.location, onChange:e=>setForm(p=>({...p,location:e.target.value})), placeholder:isAr?'مثال: 7 Blue':'e.g. 7 Blue' })
-                                )
+                            React.createElement('div', { style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:10} },
+                                React.createElement('div', null, React.createElement('label', { style:{display:'block',fontSize:12,marginBottom:3} }, isAr?'\u0627\u0644\u0646\u0648\u0639':'Type'), React.createElement('select', { value:form.type, onChange:function(e){ setForm(function(p){ return Object.assign(Object.assign({},p),{type:e.target.value}); }); }, style:{width:'100%'} }, React.createElement('option',{value:'class'},isAr?'\u062D\u0635\u0629':'Class'), React.createElement('option',{value:'duty'},isAr?'\u0645\u0646\u0627\u0648\u0628\u0629':'Duty'))),
+                                React.createElement('div', null, React.createElement('label', { style:{display:'block',fontSize:12,marginBottom:3} }, isAr?'\u0627\u0644\u0648\u0635\u0641':'Label'), React.createElement('input', { value:form.label, onChange:function(e){ setForm(function(p){ return Object.assign(Object.assign({},p),{label:e.target.value}); }); }, placeholder:isAr?'\u0645\u062B\u0627\u0644: \u0631\u064A\u0627\u0636\u064A\u0627\u062A':'e.g. Math G7', style:{width:'100%'} })),
+                                React.createElement('div', null, React.createElement('label', { style:{display:'block',fontSize:12,marginBottom:3} }, isAr?'\u0627\u0644\u0645\u0648\u0642\u0639':'Location'), React.createElement('input', { value:form.location, onChange:function(e){ setForm(function(p){ return Object.assign(Object.assign({},p),{location:e.target.value}); }); }, placeholder:isAr?'\u0645\u062B\u0627\u0644: 7 Blue':'e.g. 7 Blue', style:{width:'100%'} }))
                             ),
-                            React.createElement('div', { style:{display:'flex', gap:8} },
-                                React.createElement('button', { className:'btn btnp', onClick:saveEntry }, `💾 ${editingId?(isAr?'حفظ التعديل':'Save Changes'):(isAr?'إضافة':'Add')}`),
-                                editingId && React.createElement('button', { className:'btn btng', onClick:cancelEdit }, isAr?'إلغاء':'Cancel')
+                            React.createElement('div', { style:{display:'flex',gap:8} },
+                                React.createElement('button', { className:'btn btnp', onClick:saveEntry }, '\uD83D\uDCBE ' + (editingId?(isAr?'\u062D\u0641\u0638 \u0627\u0644\u062A\u0639\u062F\u064A\u0644':'Save Changes'):(isAr?'\u0625\u0636\u0627\u0641\u0629':'Add'))),
+                                editingId && React.createElement('button', { className:'btn btng', onClick:cancelEdit }, isAr?'\u0625\u0644\u063A\u0627\u0621':'Cancel')
                             )
                         )
                     );
                 })(),
-                !selT && React.createElement('div', { className:'card', style:{textAlign:'center', padding:40, color:'#94a3b8', fontSize:13} },
-                    isAr ? '← اختر معلماً لعرض جدوله' : '← Select a teacher to view their schedule'
-                ),
-
-                // Import button card
+                !selT && React.createElement('div', { className:'card', style:{textAlign:'center',padding:40,color:'#94a3b8',fontSize:13} }, isAr?'\u2190 \u0627\u062E\u062A\u0631 \u0645\u0639\u0644\u0645\u0627\u064B \u0644\u0639\u0631\u0636 \u062C\u062F\u0648\u0644\u0647':'\u2190 Select a teacher to view their schedule'),
                 React.createElement('div', { className:'card', style:{marginTop:10} },
-                    React.createElement('div', { style:{display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:8} },
-                        React.createElement('div', { style:{fontSize:13, fontWeight:600} }, isAr?'📥 استيراد من PrimeTimetable':'📥 Import from PrimeTimetable PDF'),
+                    React.createElement('div', { style:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8} },
+                        React.createElement('div', { style:{fontSize:13,fontWeight:600} }, isAr?'\uD83D\uDCE5 \u0627\u0633\u062A\u064A\u0631\u0627\u062F \u0645\u0646 PrimeTimetable':'\uD83D\uDCE5 Import from PrimeTimetable PDF'),
                         React.createElement(SmartImportButton, {
-                            label: isAr?'استيراد الجدول':'Import Schedule (PDF/Excel)',
-                            isAr, accept:'.xlsx,.xls,.csv,.docx,.pdf',
-                            note: isAr?'PDF من PrimeTimetable: يتم التعرف عليه تلقائياً. عند إعادة الاستيراد يتم الكشف عن التعارضات.':'PrimeTimetable PDF: auto-detected. Re-importing flags conflicts and duplicates automatically.',
-                            columns: [isAr?'المعلم':'Teacher', isAr?'اليوم':'Day', isAr?'من':'Start', isAr?'إلى':'End', isAr?'النوع':'Type', isAr?'الوصف':'Label', isAr?'الموقع':'Location'],
-                            parseRow: raw => {
-                                const pickField = (obj, keys) => { for(const k of keys){ const v = obj[k]; if(v && String(v).trim()) return String(v).trim(); } for(const k of Object.keys(obj)){ for(const ky of keys){ if(k.toLowerCase().includes(ky.toLowerCase()) && obj[k] && String(obj[k]).trim()) return String(obj[k]).trim(); } } return ''; };
-                                const dayFromText = txt => { if(!txt) return ''; const t=txt.toLowerCase(); if(t.includes('sun')||t.includes('أحد')) return 'Sun'; if(t.includes('mon')||t.includes('اثن')) return 'Mon'; if(t.includes('tue')||t.includes('ثلا')) return 'Tue'; if(t.includes('wed')||t.includes('أربع')) return 'Wed'; if(t.includes('thu')||t.includes('خمي')) return 'Thu'; return ''; };
-                                const timesFromText = txt => { const m=[...txt.matchAll(/\b(\d{1,2}:\d{2})\b/g)].map(x=>x[1]); return m.length>=2?[m[0],m[1]]:[]; };
-                                const teacherName = pickField(raw, ['teacher','teacher name','name','معلم','اسم المعلم','المعلم']);
-                                const dayRaw = pickField(raw, ['day','يوم','اليوم']);
-                                const startRaw = pickField(raw, ['start','start time','from','من','بداية']);
-                                const endRaw = pickField(raw, ['end','end time','to','إلى','نهاية']);
-                                const typeRaw = pickField(raw, ['type','نوع','النوع']);
-                                const label = pickField(raw, ['label','subject','duty','class','description','وصف','الوصف','المادة','المناوبة']);
-                                const location = pickField(raw, ['location','room','مكان','الموقع','الغرفة']);
-                                const allText = Object.values(raw).filter(v=>typeof v==='string').join(' ');
-                                const day = dayFromText(dayRaw) || dayFromText(allText);
-                                let times = [];
+                            label: isAr?'\u0627\u0633\u062A\u064A\u0631\u0627\u062F \u0627\u0644\u062C\u062F\u0648\u0644':'Import Schedule (PDF/Excel)',
+                            isAr: isAr, accept:'.xlsx,.xls,.csv,.docx,.pdf',
+                            note: 'PrimeTimetable PDF: auto-detected. Re-importing flags conflicts and duplicates automatically.',
+                            columns: ['Teacher','Day','Start','End','Type','Label','Location'],
+                            parseRow: function(raw) {
+                                var pickField = function(obj, keys) { for(var i=0;i<keys.length;i++){ var v=obj[keys[i]]; if(v&&String(v).trim()) return String(v).trim(); } for(var k in obj){ for(var j=0;j<keys.length;j++){ if(k.toLowerCase().includes(keys[j].toLowerCase())&&obj[k]&&String(obj[k]).trim()) return String(obj[k]).trim(); } } return ''; };
+                                var dayFromText = function(txt) { if(!txt) return ''; var t=txt.toLowerCase(); if(t.includes('sun')||t.includes('\u0623\u062d\u062f')) return 'Sun'; if(t.includes('mon')||t.includes('\u0627\u062b\u0646')) return 'Mon'; if(t.includes('tue')||t.includes('\u062b\u0644\u0627')) return 'Tue'; if(t.includes('wed')||t.includes('\u0623\u0631\u0628\u0639')) return 'Wed'; if(t.includes('thu')||t.includes('\u062e\u0645\u064a')) return 'Thu'; return ''; };
+                                var timesFromText = function(txt) { var m=[]; var re=/\b(\d{1,2}:\d{2})\b/g; var x; while((x=re.exec(txt))!==null) m.push(x[1]); return m.length>=2?[m[0],m[1]]:[]; };
+                                var teacherName = pickField(raw, ['teacher','teacher name','name','\u0645\u0639\u0644\u0645','\u0627\u0633\u0645 \u0627\u0644\u0645\u0639\u0644\u0645','\u0627\u0644\u0645\u0639\u0644\u0645']);
+                                var dayRaw = pickField(raw, ['day','\u064a\u0648\u0645','\u0627\u0644\u064a\u0648\u0645']);
+                                var startRaw = pickField(raw, ['start','start time','from','\u0645\u0646','\u0628\u062f\u0627\u064a\u0629']);
+                                var endRaw = pickField(raw, ['end','end time','to','\u0625\u0644\u0649','\u0646\u0647\u0627\u064a\u0629']);
+                                var typeRaw = pickField(raw, ['type','\u0646\u0648\u0639','\u0627\u0644\u0646\u0648\u0639']);
+                                var label = pickField(raw, ['label','subject','duty','class','description','\u0648\u0635\u0641','\u0627\u0644\u0648\u0635\u0641','\u0627\u0644\u0645\u0627\u062f\u0629','\u0627\u0644\u0645\u0646\u0627\u0648\u0628\u0629']);
+                                var location = pickField(raw, ['location','room','\u0645\u0643\u0627\u0646','\u0627\u0644\u0645\u0648\u0642\u0639','\u0627\u0644\u063a\u0631\u0641\u0629']);
+                                var allText = Object.values(raw).filter(function(v){return typeof v==='string';}).join(' ');
+                                var day = dayFromText(dayRaw) || dayFromText(allText);
+                                var times = [];
                                 if(startRaw) times.push(startRaw);
                                 if(endRaw) times.push(endRaw);
                                 if(times.length<2) times = timesFromText(allText);
-                                const start = startRaw||times[0]||'';
-                                const end = endRaw||times[1]||'';
-                                const type = /duty|مناوبة/i.test(typeRaw||allText)?'duty':'class';
-                                const normTN = teacherName.trim().replace(/([A-Za-z])\.([A-Za-z])/g,'$1. $2');
-                                if(!normTN||normTN==='Co') return { ok:false, warn: normTN==='Co'?(isAr?'تدريس مشترك — تخطّ':'Co-taught — skip'):(isAr?'لا يوجد اسم معلم':'No teacher name'), fields:['—',day||'—',start||'—',end||'—',type,label||'—',location||'—'] };
-                                if(!day||!start||!end) return { ok:false, warn:isAr?'اليوم/الوقت غير واضح':'Day/time unclear', fields:[normTN,day||'—',start||'—',end||'—',type,label||'—',location||'—'] };
-                                const finalLabel = label||(type==='duty'?(isAr?'مناوبة':'Duty'):(isAr?'حصة':'Class'));
-                                const matched = resolveTeacher(normTN);
+                                var start = startRaw||times[0]||'';
+                                var end = endRaw||times[1]||'';
+                                var type = /duty|\u0645\u0646\u0627\u0648\u0628\u0629/i.test(typeRaw||allText)?'duty':'class';
+                                var normTN = teacherName.trim().replace(/([A-Za-z])\.([A-Za-z])/g,'$1. $2');
+                                if(!normTN||normTN==='Co') return { ok:false, warn: normTN==='Co'?'Co-taught \u2014 skip':'No teacher name', fields:['\u2014',day||'\u2014',start||'\u2014',end||'\u2014',type,label||'\u2014',location||'\u2014'] };
+                                if(!day||!start||!end) return { ok:false, warn:'Day/time unclear', fields:[normTN,day||'\u2014',start||'\u2014',end||'\u2014',type,label||'\u2014',location||'\u2014'] };
+                                var finalLabel = label||(type==='duty'?'Duty':'Class');
+                                var matched = resolveTeacher(normTN);
                                 if(matched){
-                                    const existing = Object.values(sched[matched.id]||{});
-                                    const nS=timeToMin(start),nE=timeToMin(end);
-                                    const dup = existing.find(e=>e.day===day&&e.start===start&&e.end===end&&e.label===finalLabel&&e.location===location);
-                                    if(dup) return { ok:false, warn:isAr?'🔁 مكرر':'🔁 Duplicate', fields:[matched.name,day,start,end,type,finalLabel,location||'—'] };
-                                    const conf = existing.find(e=>e.day===day&&timeToMin(e.start)<nE&&timeToMin(e.end)>nS);
-                                    if(conf) return { ok:false, warn:`⚠️ ${isAr?'تعارض':'Conflict'}: "${conf.label}" ${conf.start}–${conf.end}`, fields:[matched.name,day,start,end,type,finalLabel,location||'—'] };
-                                    return { ok:true, fields:[matched.name,day,start,end,type,finalLabel,location||'—'], record:{ teacherId:matched.id, entry:{ id:uid(), day, start, end, type, label:finalLabel, location } } };
+                                    var existing = Object.values(sched[matched.id]||{});
+                                    var nS=timeToMin(start),nE=timeToMin(end);
+                                    var dup = existing.find(function(e){return e.day===day&&e.start===start&&e.end===end&&e.label===finalLabel&&(e.location||'').trim()===(location||'').trim();});
+                                    if(dup) return { ok:false, warn:'\uD83D\uDD01 Duplicate', fields:[matched.name,day,start,end,type,finalLabel,location||'\u2014'] };
+                                    var conf = existing.find(function(e){return e.day===day&&timeToMin(e.start)<nE&&timeToMin(e.end)>nS;});
+                                    if(conf) return { ok:false, warn:'\u26A0\uFE0F Conflict: "'+conf.label+'" '+conf.start+'\u2013'+conf.end, fields:[matched.name,day,start,end,type,finalLabel,location||'\u2014'] };
+                                    return { ok:true, fields:[matched.name,day,start,end,type,finalLabel,location||'\u2014'], record:{ teacherId:matched.id, entry:{ id:uid(), day:day, start:start, end:end, type:type, label:finalLabel, location:location } } };
                                 }
-                                const newId = uid();
-                                return { ok:true, fields:['✨ '+normTN+' (new)',day,start,end,type,finalLabel,location||'—'], record:{ teacherId:newId, newTeacher:{ id:newId, name:normTN, role:'Teacher', subjects:[], grades:[] }, entry:{ id:uid(), day, start, end, type, label:finalLabel, location } } };
+                                var newId = uid();
+                                return { ok:true, fields:['\u2728 '+normTN+' (new)',day,start,end,type,finalLabel,location||'\u2014'], record:{ teacherId:newId, newTeacher:{ id:newId, name:normTN, role:'Teacher', subjects:[], grades:[] }, entry:{ id:uid(), day:day, start:start, end:end, type:type, label:finalLabel, location:location } } };
                             },
-                            onCommit: records => {
-                                const upd={}, nameToId={}, tGrades={}, tSubjects={}, newTObjs={};
-                                let cntAdded=0,cntUpdated=0,cntSkipped=0;
-                                records.forEach(r => {
-                                    let tid=r.teacherId;
-                                    if(r.newTeacher){ const nk=r.newTeacher.name.toLowerCase().trim(); if(!nameToId[nk]){ nameToId[nk]=r.newTeacher.id; newTObjs[r.newTeacher.id]=r.newTeacher; } tid=nameToId[nk]; }
-                                    if(!tGrades[tid]) tGrades[tid]=new Set();
-                                    if(!tSubjects[tid]) tSubjects[tid]=new Set();
-                                    const existing=Object.values(sched[tid]||{});
-                                    const dup=existing.find(e=>e.day===r.entry.day&&e.start===r.entry.start&&e.end===r.entry.end&&e.label===r.entry.label&&(e.location||'').trim()===(r.entry.location||'').trim());
+                            onCommit: function(records) {
+                                var upd={}, nameToId={}, tGrades={}, tSubjects={}, newTObjs={};
+                                var cntAdded=0, cntUpdated=0, cntSkipped=0;
+                                records.forEach(function(r) {
+                                    var tid = r.teacherId;
+                                    if(r.newTeacher){ var nk=r.newTeacher.name.toLowerCase().trim(); if(!nameToId[nk]){ nameToId[nk]=r.newTeacher.id; newTObjs[r.newTeacher.id]=r.newTeacher; } tid=nameToId[nk]; }
+                                    if(!tGrades[tid]) tGrades[tid]=[];
+                                    if(!tSubjects[tid]) tSubjects[tid]=[];
+                                    var existing=Object.values(sched[tid]||{});
+                                    var dup=existing.find(function(e){return e.day===r.entry.day&&e.start===r.entry.start&&e.end===r.entry.end&&e.label===r.entry.label&&(e.location||'').trim()===(r.entry.location||'').trim();});
                                     if(dup){ cntSkipped++; return; }
-                                    const sameSlot=existing.find(e=>e.day===r.entry.day&&e.start===r.entry.start&&e.end===r.entry.end);
-                                    if(sameSlot){ upd[`/btpro/teacherSchedule/${tid}/${sameSlot.id}`]={...r.entry,id:sameSlot.id}; cntUpdated++; }
-                                    else { upd[`/btpro/teacherSchedule/${tid}/${r.entry.id}`]=r.entry; cntAdded++; }
-                                    const gm=(r.entry.location||'').match(/^(\d+)\s/);
-                                    if(gm) tGrades[tid].add('G'+gm[1]);
-                                    if(r.entry.label&&r.entry.type==='class'){ const subj=r.entry.label.replace(/\s+G\d+.*/,'').trim(); if(subj) tSubjects[tid].add(subj); }
+                                    var sameSlot=existing.find(function(e){return e.day===r.entry.day&&e.start===r.entry.start&&e.end===r.entry.end;});
+                                    if(sameSlot){ upd['/btpro/teacherSchedule/'+tid+'/'+sameSlot.id]=Object.assign(Object.assign({},r.entry),{id:sameSlot.id}); cntUpdated++; }
+                                    else { upd['/btpro/teacherSchedule/'+tid+'/'+r.entry.id]=r.entry; cntAdded++; }
+                                    var gm=(r.entry.location||'').match(/^(\d+)\s/);
+                                    if(gm) tGrades[tid].push('G'+gm[1]);
+                                    if(r.entry.label&&r.entry.type==='class'){ var subj=r.entry.label.replace(/\s+G\d+.*/,'').trim(); if(subj) tSubjects[tid].push(subj); }
                                 });
-                                Object.entries(newTObjs).forEach(([tid,nt])=>{ const g=[...(tGrades[tid]||new Set())].sort(); const s=[...(tSubjects[tid]||new Set())].sort(); upd[`/btpro/teachers/${tid}`]={...nt,grades:g,subjects:s}; });
-                                Object.entries(tGrades).forEach(([tid,grades])=>{ if(newTObjs[tid]) return; const t=teachers.find(x=>x.id===tid); if(!t) return; const mg=[...new Set([...(t.grades||[]),...grades])].sort(); const ms=[...new Set([...(t.subjects||[]),...(tSubjects[tid]||new Set())])].sort(); upd[`/btpro/teachers/${tid}/grades`]=mg; upd[`/btpro/teachers/${tid}/subjects`]=ms; });
+                                Object.keys(newTObjs).forEach(function(tid){ var nt=newTObjs[tid]; var g=Array.from(new Set(tGrades[tid]||[])).sort(); var s=Array.from(new Set(tSubjects[tid]||[])).sort(); upd['/btpro/teachers/'+tid]=Object.assign(Object.assign({},nt),{grades:g,subjects:s}); });
+                                Object.keys(tGrades).forEach(function(tid){ if(newTObjs[tid]) return; var t=teachers.find(function(x){return x.id===tid;}); if(!t) return; var mg=Array.from(new Set((t.grades||[]).concat(tGrades[tid]))).sort(); var ms=Array.from(new Set((t.subjects||[]).concat(tSubjects[tid]))).sort(); upd['/btpro/teachers/'+tid+'/grades']=mg; upd['/btpro/teachers/'+tid+'/subjects']=ms; });
                                 if(Object.keys(upd).length>0) db.ref('/').update(upd);
-                                alert(`✅ Import complete:\n• ${cntAdded} slot(s) added\n• ${cntUpdated} slot(s) updated\n• ${cntSkipped} duplicate(s) skipped`);
+                                alert('\u2705 Import complete:\n\u2022 '+cntAdded+' slot(s) added\n\u2022 '+cntUpdated+' slot(s) updated\n\u2022 '+cntSkipped+' duplicate(s) skipped');
                             }
                         })
                     )
@@ -11689,121 +11617,104 @@ function TDSchedule({ data, teachers, isAr }) {
             )
         ),
 
-        // ════════════════════════════════════════════
-        // VIEW 2: BY CLASS
-        // ════════════════════════════════════════════
         schedView === 'class' && React.createElement('div', { style:{ display:'grid', gridTemplateColumns:'220px 1fr', gap:14 } },
-            React.createElement('div', { className:'card', style:{height:'fit-content', maxHeight:520, overflowY:'auto'} },
-                React.createElement('strong', { style:{fontSize:12,color:'#64748b'} }, isAr?'اختر فصلاً':'Select a class'),
-                React.createElement('div', { style:{marginTop:8,marginBottom:8} },
-                    React.createElement('input', { placeholder:isAr?'بحث...':'Search class...', value:classSearch, onChange:e=>setClassSearch(e.target.value), style:{width:'100%',boxSizing:'border-box',fontSize:12} })
+            React.createElement('div', { className:'card', style:{height:'fit-content',maxHeight:520,overflowY:'auto'} },
+                React.createElement('strong', { style:{fontSize:12,color:'#64748b'} }, isAr?'\u0627\u062e\u062a\u0631 \u0641\u0635\u0644\u0627\u064b':'Select a class'),
+                React.createElement('div', { style:{margin:'8px 0'} },
+                    React.createElement('input', { placeholder:isAr?'\u0628\u062d\u062b...':'Search class...', value:classSearch, onChange:function(e){setClassSearch(e.target.value);}, style:{width:'100%',boxSizing:'border-box',fontSize:12,padding:'6px 10px',border:'1px solid #d1d5db',borderRadius:6} })
                 ),
-                filteredClasses.length===0 && React.createElement('div', { style:{fontSize:12,color:'#94a3b8',textAlign:'center',padding:'12px 0'} }, isAr?'لا يوجد':'No classes found'),
-                filteredClasses.map(cls => React.createElement('div', { key:cls, onClick:()=>setSelClass(cls), style:{ padding:'7px 10px', borderRadius:7, cursor:'pointer', marginBottom:3, background: selClass===cls?'#eff6ff':'#f8fafc', border: selClass===cls?'1.5px solid #1a73e8':'1px solid #e2e8f0', fontSize:13 } }, cls))
+                filteredClasses.length===0 && React.createElement('div', { style:{fontSize:12,color:'#94a3b8',textAlign:'center',padding:'12px 0'} }, isAr?'\u0644\u0627 \u064A\u0648\u062C\u062F':'No classes found'),
+                filteredClasses.map(function(cls) {
+                    return React.createElement('div', { key:cls, onClick:function(){setSelClass(cls);}, style:{ padding:'7px 10px',borderRadius:7,cursor:'pointer',marginBottom:3,background:selClass===cls?'#eff6ff':'#f8fafc',border:selClass===cls?'1.5px solid #1a73e8':'1px solid #e2e8f0',fontSize:13 } }, cls);
+                })
             ),
             React.createElement('div', null,
-                selClass && (() => {
-                    const entries = (classIndex[selClass]||[]);
+                selClass && (function() {
+                    var entries = classIndex[selClass] || [];
                     return React.createElement('div', { className:'card' },
-                        React.createElement('div', { style:{fontWeight:700,fontSize:15,marginBottom:12} }, `🏫 ${selClass} — ${isAr?'الجدول الأسبوعي':'Weekly Schedule'}`),
-                        React.createElement('div', { style:{display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:8} },
-                            DAYS.map(d => {
-                                const dayE = entries.filter(e=>e.day===d).sort((a,b)=>timeToMin(a.start)-timeToMin(b.start));
+                        React.createElement('div', { style:{fontWeight:700,fontSize:15,marginBottom:12} }, '\uD83C\uDFEB ' + selClass + ' \u2014 ' + (isAr?'\u0627\u0644\u062C\u062F\u0648\u0644 \u0627\u0644\u0623\u0633\u0628\u0648\u0639\u064A':'Weekly Schedule')),
+                        React.createElement('div', { style:{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8} },
+                            DAYS.map(function(d) {
+                                var dayE = entries.filter(function(e){return e.day===d;}).sort(function(a,b){return timeToMin(a.start)-timeToMin(b.start);});
                                 return React.createElement('div', { key:d, style:{background:'#f8fafc',borderRadius:8,padding:8,minHeight:80} },
                                     React.createElement('div', { style:{fontWeight:700,fontSize:12,marginBottom:6} }, dayLabel(d)),
-                                    dayE.length===0 && React.createElement('div', {style:{fontSize:11,color:'#cbd5e1',textAlign:'center',paddingTop:12}}, '—'),
-                                    dayE.map((e,i)=>React.createElement('div', { key:i, style:{background:'#fff',borderRadius:6,padding:'5px 7px',marginBottom:5,border:'1px solid #e2e8f0'} },
-                                        React.createElement('span', {style:chipStyle(false)}, `${e.start}–${e.end}`),
-                                        React.createElement('div', { style:{fontSize:12,fontWeight:600,marginTop:2} }, e.label),
-                                        React.createElement('div', { style:{fontSize:11,color:'#64748b'} }, `👤 ${e.teacher.name}`)
-                                    ))
+                                    dayE.length===0 && React.createElement('div', {style:{fontSize:11,color:'#cbd5e1',textAlign:'center',paddingTop:12}}, '\u2014'),
+                                    dayE.map(function(e,i) {
+                                        return React.createElement('div', { key:i, style:{background:'#fff',borderRadius:6,padding:'5px 7px',marginBottom:5,border:'1px solid #e2e8f0'} },
+                                            React.createElement('span', {style:chipSt(false)}, e.start+'\u2013'+e.end),
+                                            React.createElement('div', {style:{fontSize:12,fontWeight:600,marginTop:2}}, e.label),
+                                            React.createElement('div', {style:{fontSize:11,color:'#64748b'}}, '\uD83D\uDC64 '+e.teacher.name)
+                                        );
+                                    })
                                 );
                             })
                         )
                     );
                 })(),
-                !selClass && React.createElement('div', { className:'card', style:{textAlign:'center',padding:40,color:'#94a3b8',fontSize:13} }, isAr?'← اختر فصلاً':'← Select a class')
+                !selClass && React.createElement('div', { className:'card', style:{textAlign:'center',padding:40,color:'#94a3b8',fontSize:13} }, isAr?'\u2190 \u0627\u062e\u062a\u0631 \u0641\u0635\u0644\u0627\u064b':'\u2190 Select a class')
             )
         ),
 
-        // ════════════════════════════════════════════
-        // VIEW 3: BREAK DUTIES
-        // ════════════════════════════════════════════
         schedView === 'duties' && React.createElement('div', null,
-            // Day selector
-            React.createElement('div', { style:{display:'flex', gap:6, marginBottom:14, flexWrap:'wrap'} },
-                DAYS.map(d => React.createElement('button', { key:d, className:`btn bsm ${dutyDay===d?'btnp':'btng'}`, onClick:()=>setDutyDay(d) }, dayLabel(d)))
+            React.createElement('div', { style:{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap'} },
+                DAYS.map(function(d) { return React.createElement('button', { key:d, style:dayBtnSt(dutyDay===d), onClick:function(){setDutyDay(d);} }, dayLabel(d)); })
             ),
-
-            // Period timeline card
             React.createElement('div', { className:'card', style:{marginBottom:12} },
-                React.createElement('div', { style:{fontWeight:700,fontSize:13,marginBottom:10} }, isAr?`⏰ جدول الحصص — ${dayLabel(dutyDay)}`:`⏰ Period Times — ${dayLabel(dutyDay)}`),
-                React.createElement('div', { style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12} },
-                    // Primary
+                React.createElement('div', { style:{fontWeight:700,fontSize:13,marginBottom:10} }, '\u23F0 Period Times \u2014 ' + dayLabel(dutyDay)),
+                React.createElement('div', { style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12} },
                     React.createElement('div', null,
                         React.createElement('div', { style:{fontWeight:600,fontSize:12,color:'#1a73e8',marginBottom:6,padding:'4px 8px',background:'#eff6ff',borderRadius:6} }, 'G4-6 Primary'),
-                        PERIODS_PRIMARY.map((p,i)=>React.createElement('div', { key:i, style:{display:'flex',justifyContent:'space-between',padding:'4px 8px',borderRadius:5,marginBottom:2,background:p.isBreak?'#fef3c7':'#f8fafc',fontSize:12} },
-                            React.createElement('span', {style:{fontWeight:p.isBreak?700:400,color:p.isBreak?'#92400e':'#1e293b'}}, p.label),
-                            React.createElement('span', {style:{color:'#64748b',fontFamily:'monospace',fontSize:11}}, `${p.start}–${p.end}`)
-                        ))
+                        PERIODS_PRIMARY.map(function(p,i) { return React.createElement('div', { key:i, style:periodRowSt(p.isBreak) }, React.createElement('span',{style:{fontWeight:p.isBreak?700:400,color:p.isBreak?'#92400e':'#1e293b'}},p.label), React.createElement('span',{style:{color:'#64748b',fontFamily:'monospace',fontSize:11}},p.start+'\u2013'+p.end)); })
                     ),
-                    // Secondary
                     React.createElement('div', null,
                         React.createElement('div', { style:{fontWeight:600,fontSize:12,color:'#7c3aed',marginBottom:6,padding:'4px 8px',background:'#faf5ff',borderRadius:6} }, 'G7-12 Secondary'),
-                        PERIODS_SECONDARY.map((p,i)=>React.createElement('div', { key:i, style:{display:'flex',justifyContent:'space-between',padding:'4px 8px',borderRadius:5,marginBottom:2,background:p.isBreak?'#fef3c7':'#f8fafc',fontSize:12} },
-                            React.createElement('span', {style:{fontWeight:p.isBreak?700:400,color:p.isBreak?'#92400e':'#1e293b'}}, p.label),
-                            React.createElement('span', {style:{color:'#64748b',fontFamily:'monospace',fontSize:11}}, `${p.start}–${p.end}`)
-                        ))
+                        PERIODS_SECONDARY.map(function(p,i) { return React.createElement('div', { key:i, style:periodRowSt(p.isBreak) }, React.createElement('span',{style:{fontWeight:p.isBreak?700:400,color:p.isBreak?'#92400e':'#1e293b'}},p.label), React.createElement('span',{style:{color:'#64748b',fontFamily:'monospace',fontSize:11}},p.start+'\u2013'+p.end)); })
                     )
                 )
             ),
-
-            // G7-12 Break Supervision
             React.createElement('div', { className:'card', style:{marginBottom:12} },
-                React.createElement('div', { style:{fontWeight:700,fontSize:13,marginBottom:10,color:'#7c3aed'} }, `☕ ${isAr?'مناوبات الفسحة — صفوف 7-12':'Break Supervision — G7-12'} (${dayLabel(dutyDay)})`),
-                React.createElement('div', { style:{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10} },
+                React.createElement('div', { style:{fontWeight:700,fontSize:13,marginBottom:10,color:'#7c3aed'} }, '\u2615 Break Supervision G7-12 \u2014 ' + dayLabel(dutyDay)),
+                React.createElement('div', { style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10} },
                     [
-                        { key:'canteen', label:'🍽 Canteen (المطعم)', color:'#eff6ff', border:'#bfdbfe' },
-                        { key:'corridor', label:'🚶 Corridor (الممرات)', color:'#f0fdf4', border:'#86efac' },
-                        { key:'autorim', label:'🏟 Autorim', color:'#faf5ff', border:'#c4b5fd' },
-                    ].map(zone => {
-                        const dayData = SUPERVISION_G7_12[dutyDay] || {};
-                        const names = dayData[zone.key] || [];
-                        return React.createElement('div', { key:zone.key, style:{background:zone.color,border:`1.5px solid ${zone.border}`,borderRadius:10,padding:12} },
+                        { key:'canteen', label:'\uD83C\uDF7D Canteen', bg:'#eff6ff', border:'#bfdbfe' },
+                        { key:'corridor', label:'\uD83D\uDEB6 Corridor', bg:'#f0fdf4', border:'#86efac' },
+                        { key:'autorim', label:'\uD83C\uDFDF Autorim', bg:'#faf5ff', border:'#c4b5fd' },
+                    ].map(function(zone) {
+                        var dayData = SUPERVISION_G7_12[dutyDay] || {};
+                        var names = dayData[zone.key] || [];
+                        return React.createElement('div', { key:zone.key, style:zoneCardSt(zone.bg, zone.border) },
                             React.createElement('div', { style:{fontWeight:700,fontSize:12,marginBottom:8} }, zone.label),
-                            names.length===0 ? React.createElement('div', {style:{fontSize:12,color:'#94a3b8'}}, '—') :
-                            names.map((n,i)=>React.createElement('div', { key:i, style:{fontSize:13,padding:'4px 8px',background:'#fff',borderRadius:6,marginBottom:4,fontWeight:500} }, `👤 ${n}`))
+                            names.length===0 ? React.createElement('div',{style:{fontSize:12,color:'#94a3b8'}},'\u2014') :
+                            names.map(function(n,i){ return React.createElement('div',{key:i,style:{fontSize:13,padding:'4px 8px',background:'#fff',borderRadius:6,marginBottom:4,fontWeight:500}},'\uD83D\uDC64 '+n); })
                         );
                     })
                 )
             ),
-
-            // G4-6 Break Supervision
-            React.createElement('div', { className:'card', style:{marginBottom:12} },
-                React.createElement('div', { style:{fontWeight:700,fontSize:13,marginBottom:10,color:'#1a73e8'} }, `☕ ${isAr?'مناوبات الفسحة — صفوف 4-6':'Break Supervision — G4-6'} (${dayLabel(dutyDay)})`),
-                React.createElement('div', { style:{display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10} },
+            React.createElement('div', { className:'card' },
+                React.createElement('div', { style:{fontWeight:700,fontSize:13,marginBottom:10,color:'#1a73e8'} }, '\u2615 Break Supervision G4-6 \u2014 ' + dayLabel(dutyDay)),
+                React.createElement('div', { style:{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10,marginBottom:10} },
                     [
-                        { key:'atrium', label:'🏛 B1 Atrium', color:'#eff6ff', border:'#bfdbfe' },
-                        { key:'canteen', label:'🍽 B2 Canteen', color:'#f0fdf4', border:'#86efac' },
-                    ].map(zone => {
-                        const dayData = SUPERVISION_G4_6[dutyDay] || {};
-                        const names = dayData[zone.key] || [];
-                        return React.createElement('div', { key:zone.key, style:{background:zone.color,border:`1.5px solid ${zone.border}`,borderRadius:10,padding:12} },
+                        { key:'atrium', label:'\uD83C\uDFDB B1 Atrium', bg:'#eff6ff', border:'#bfdbfe' },
+                        { key:'canteen', label:'\uD83C\uDF7D B2 Canteen', bg:'#f0fdf4', border:'#86efac' },
+                    ].map(function(zone) {
+                        var dayData = SUPERVISION_G4_6[dutyDay] || {};
+                        var names = dayData[zone.key] || [];
+                        return React.createElement('div', { key:zone.key, style:zoneCardSt(zone.bg, zone.border) },
                             React.createElement('div', { style:{fontWeight:700,fontSize:12,marginBottom:8} }, zone.label),
-                            names.map((n,i)=>React.createElement('div', { key:i, style:{fontSize:13,padding:'4px 8px',background:'#fff',borderRadius:6,marginBottom:4,fontWeight:500} }, `👤 ${n}`))
+                            names.map(function(n,i){ return React.createElement('div',{key:i,style:{fontSize:13,padding:'4px 8px',background:'#fff',borderRadius:6,marginBottom:4,fontWeight:500}},'\uD83D\uDC64 '+n); })
                         );
                     })
                 ),
-                React.createElement('div', { style:{display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10, marginTop:10} },
-                    React.createElement('div', { style:{background:'#fef3c7',border:'1.5px solid #fde68a',borderRadius:10,padding:12} },
-                        React.createElement('div', { style:{fontWeight:700,fontSize:12,marginBottom:8} }, '🙏 Prayer Supervision'),
-                        (SUPERVISION_G4_6[dutyDay]?.prayer||[]).map((n,i)=>React.createElement('div', { key:i, style:{fontSize:13,padding:'4px 8px',background:'#fff',borderRadius:6,marginBottom:4,fontWeight:500} }, `👤 ${n}`))
+                React.createElement('div', { style:{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10} },
+                    React.createElement('div', { style:zoneCardSt('#fef3c7','#fde68a') },
+                        React.createElement('div', {style:{fontWeight:700,fontSize:12,marginBottom:8}}, '\uD83D\uDE4F Prayer Supervision'),
+                        ((SUPERVISION_G4_6[dutyDay]||{}).prayer||[]).map(function(n,i){ return React.createElement('div',{key:i,style:{fontSize:13,padding:'4px 8px',background:'#fff',borderRadius:6,marginBottom:4,fontWeight:500}},'\uD83D\uDC64 '+n); })
                     ),
-                    React.createElement('div', { style:{background:'#fef2f2',border:'1.5px solid #fecaca',borderRadius:10,padding:12} },
-                        React.createElement('div', { style:{fontWeight:700,fontSize:12,marginBottom:8} }, '🚪 Dismissal'),
-                        React.createElement('div', { style:{fontSize:12,color:'#475569'} }, SUPERVISION_G4_6[dutyDay]?.dismissal||'—'),
-                        React.createElement('div', { style:{fontSize:11,color:'#94a3b8',marginTop:6,fontStyle:'italic'} }, FRONT_GATE),
-                        React.createElement('div', { style:{fontSize:12,fontWeight:600,marginTop:6,color:'#dc2626'} }, `After: ${AFTER_DISMISSAL[dutyDay]||'—'}`)
+                    React.createElement('div', { style:zoneCardSt('#fef2f2','#fecaca') },
+                        React.createElement('div', {style:{fontWeight:700,fontSize:12,marginBottom:8}}, '\uD83D\uDEAA Dismissal'),
+                        React.createElement('div', {style:{fontSize:12,color:'#475569',marginBottom:6}}, 'Last Period Teacher'),
+                        React.createElement('div', {style:{fontSize:11,color:'#94a3b8',fontStyle:'italic',marginBottom:4}}, FRONT_GATE),
+                        React.createElement('div', {style:{fontSize:12,fontWeight:600,color:'#dc2626'}}, 'After: ' + (AFTER_DISMISSAL[dutyDay]||'\u2014'))
                     )
                 )
             )
