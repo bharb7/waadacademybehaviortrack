@@ -2508,7 +2508,7 @@ function ParentMessages({ data, sv, up, user, lang, L }) {
         React.createElement("div", { className: "card", style: { marginBottom: 14, background: '#f8fafc' } },
             React.createElement("div", { style: { fontSize: 12, color: '#475569' } }, isAr ? '📡 اطلب من الأهل إرسال رسائلهم إلى رقم الواتساب المخصص — يُسجل الفريق الرسائل هنا ويوجهها الذكاء الاصطناعي تلقائياً.' : '📡 Ask parents to send messages to the designated WhatsApp number — staff log messages here and AI routes them automatically.')),
         (() => {
-            const pmQrUrl = 'https://waadacademybehavioraltracker.netlify.app/?parent=1';
+            const pmQrUrl = (window.location.origin + window.location.pathname).replace(/\/$/, '') + '/?parent=1';
             const pmQrImg = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(pmQrUrl)}`;
             const copyPmLink = () => { navigator.clipboard.writeText(pmQrUrl).then(() => { setPmQrCopied(true); setTimeout(() => setPmQrCopied(false), 2000); }); };
             return (React.createElement("div", { className: "card", style: { marginBottom: 14, border: '2px solid #1a73e8', background: '#eff6ff' } },
@@ -2737,7 +2737,7 @@ function StudentVoice({ data, sv, up, user, lang, L }) {
             "\uD83D\uDCA1 ",
             isAr ? 'يمكن للطلاب الإبلاغ عبر الكود المدرسي — سيستقبل النظام شكواهم مباشرة' : 'Students can report via the school code — complaints arrive here directly'),
         (() => {
-            const qrUrl = 'https://waadacademybehavioraltracker.netlify.app/?voice=1';
+            const qrUrl = (window.location.origin + window.location.pathname).replace(/\/$/, '') + '/?voice=1';
             const qrImg = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrUrl)}`;
             const copyLink = () => { navigator.clipboard.writeText(qrUrl).then(() => { setQrCopied(true); setTimeout(() => setQrCopied(false), 2000); }); };
             return (React.createElement("div", { className: "card", style: { marginBottom: 14, border: '2px solid #7c3aed', background: '#faf5ff' } },
@@ -11433,30 +11433,53 @@ function TDSchedule({ data, teachers, isAr }) {
     };
     // Shared teacher name resolver for import
     const resolveTeacher = normTN => {
-        const tnL = normTN.toLowerCase();
-        const tnParts = tnL.split(/\s+/);
-        const tnInit = tnParts[0].replace(/\./g, '').trim();
-        const tnLast = tnParts[tnParts.length - 1].replace(/\./g, '').trim();
-        const tnLastTwo = tnParts.slice(1).join(' ').replace(/\./g, '').trim();
-        return teachers.find(t => {
-            var _a;
-            const n = t.name.trim().toLowerCase();
-            const parts = n.split(/\s+/);
-            const tInit = ((_a = parts[0]) === null || _a === void 0 ? void 0 : _a[0]) || '';
-            const tLast = parts[parts.length - 1] || '';
-            const tLastTwo = parts.slice(1).join(' ');
-            if (n === tnL)
-                return true;
-            if (n.includes(tnL) || tnL.includes(n))
-                return true;
-            if (tInit === tnInit && tLast === tnLast && tnLast.length > 2)
-                return true;
-            if (tInit === tnInit && tnLastTwo && tLastTwo === tnLastTwo && tnLastTwo.length > 3)
-                return true;
-            if (tLast === tnLast && tnLast.length > 4)
-                return true;
-            return false;
+        if (!normTN) return null;
+        const clean = s => s.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+        const tnC = clean(normTN);
+        const tnParts = tnC.split(' ');
+        // First letter of first token (initial), e.g. "A" from "A. Algilani"
+        const tnInit = tnParts[0][0] || '';
+        const tnLast = tnParts[tnParts.length - 1] || '';
+        // All tokens except the first (surname words)
+        const tnSurname = tnParts.slice(1).join(' ');
+
+        // Score-based matching — pick the best score >= threshold
+        let bestScore = 0;
+        let bestTeacher = null;
+        teachers.forEach(t => {
+            const tC = clean(t.name);
+            const tParts = tC.split(' ');
+            const tFirst = tParts[0] || '';
+            const tFirstInit = tFirst[0] || '';
+            const tLast = tParts[tParts.length - 1] || '';
+            const tSurname = tParts.slice(1).join(' ');
+            let score = 0;
+
+            // Exact full match
+            if (tC === tnC) score = 100;
+            // One fully contains the other (handles "Mohammed" vs "Mohammed Alsamadani")
+            else if (tC.includes(tnC) || tnC.includes(tC)) score = 90;
+            else {
+                // Initial matches first letter of teacher first name
+                const initMatch = (tnInit === tFirstInit || tnInit === tFirst);
+                // Surname tokens match
+                const lastMatch = tLast === tnLast && tnLast.length > 2;
+                const surnameMatch = tSurname && tnSurname && (tSurname === tnSurname || tSurname.includes(tnSurname) || tnSurname.includes(tSurname)) && tnSurname.length > 2;
+                // Any token from PDF name fully appears in teacher name tokens (handles reversed names)
+                const anyTokenMatch = tnParts.some(tok => tok.length > 3 && tParts.includes(tok));
+                // Surname-only from PDF matches teacher surname (e.g. PDF has "Algilani", teacher is "A. Algilani")
+                const surnameOnlyMatch = tnParts.length === 1 && tLast === tnC && tnC.length > 3;
+
+                if (initMatch && lastMatch) score = 88;
+                else if (initMatch && surnameMatch) score = 85;
+                else if (lastMatch && tLast.length > 4) score = 80;
+                else if (surnameOnlyMatch) score = 80;
+                else if (anyTokenMatch && tParts.length > 1) score = 70;
+                else if (surnameMatch && tnSurname.length > 4) score = 65;
+            }
+            if (score > bestScore) { bestScore = score; bestTeacher = t; }
         });
+        return bestScore >= 65 ? bestTeacher : null;
     };
     return (React.createElement("div", null,
         React.createElement("div", { style: { display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center' } },
