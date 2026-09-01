@@ -2998,7 +2998,7 @@ function PublicStudentVoiceForm({ dbSt }) {
         }
         setStatus('submitting');
         const entry = {
-            name: anon ? (isAr ? 'مجهول' : 'Anonymous') : name.trim() || isAr ? 'طالب' : 'Student',
+            name: anon ? (isAr ? 'مجهول' : 'Anonymous') : (name.trim() || (isAr ? 'طالب' : 'Student')),
             topic,
             text: text.trim(),
             priority,
@@ -11437,13 +11437,9 @@ function TDSchedule({ data, teachers, isAr }) {
         const clean = s => s.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
         const tnC = clean(normTN);
         const tnParts = tnC.split(' ');
-        // First letter of first token (initial), e.g. "A" from "A. Algilani"
         const tnInit = tnParts[0][0] || '';
         const tnLast = tnParts[tnParts.length - 1] || '';
-        // All tokens except the first (surname words)
         const tnSurname = tnParts.slice(1).join(' ');
-
-        // Score-based matching — pick the best score >= threshold
         let bestScore = 0;
         let bestTeacher = null;
         teachers.forEach(t => {
@@ -11454,22 +11450,14 @@ function TDSchedule({ data, teachers, isAr }) {
             const tLast = tParts[tParts.length - 1] || '';
             const tSurname = tParts.slice(1).join(' ');
             let score = 0;
-
-            // Exact full match
             if (tC === tnC) score = 100;
-            // One fully contains the other (handles "Mohammed" vs "Mohammed Alsamadani")
             else if (tC.includes(tnC) || tnC.includes(tC)) score = 90;
             else {
-                // Initial matches first letter of teacher first name
                 const initMatch = (tnInit === tFirstInit || tnInit === tFirst);
-                // Surname tokens match
                 const lastMatch = tLast === tnLast && tnLast.length > 2;
                 const surnameMatch = tSurname && tnSurname && (tSurname === tnSurname || tSurname.includes(tnSurname) || tnSurname.includes(tSurname)) && tnSurname.length > 2;
-                // Any token from PDF name fully appears in teacher name tokens (handles reversed names)
                 const anyTokenMatch = tnParts.some(tok => tok.length > 3 && tParts.includes(tok));
-                // Surname-only from PDF matches teacher surname (e.g. PDF has "Algilani", teacher is "A. Algilani")
                 const surnameOnlyMatch = tnParts.length === 1 && tLast === tnC && tnC.length > 3;
-
                 if (initMatch && lastMatch) score = 88;
                 else if (initMatch && surnameMatch) score = 85;
                 else if (lastMatch && tLast.length > 4) score = 80;
