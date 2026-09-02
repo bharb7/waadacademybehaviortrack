@@ -1081,6 +1081,7 @@ const TAB_DEFS = [
     { id: 'nurse', ic: '🏥', en: 'Nurse / Health', ar: 'الممرضة / الصحة', sec: 'support' },
     { id: 'fba', ic: '🧠', en: 'FBA / AFIRM', ar: 'تحليل سلوكي', sec: 'support' },
     { id: 'teacherduties', ic: '🧑‍🏫', en: 'Teacher Duties', ar: 'التزام المعلمين', sec: 'tools' },
+    { id: 'teacherschedules', ic: '📅', en: 'Teachers Schedules', ar: 'جداول المعلمين', sec: 'tools' },
     { id: 'teachertasks', ic: '✅', en: 'Teacher Tasks', ar: 'مهام المعلمين', sec: 'tools' },
     { id: 'library', ic: '📖', en: 'Library', ar: 'المكتبة', sec: 'tools' },
     { id: 'parentmessages', ic: '💬', en: 'Parent Messages', ar: 'رسائل الأهل', sec: 'community' },
@@ -3522,6 +3523,7 @@ function App() {
                 tab === 'academic' && allowed('academic') && React.createElement(AcademicReports, { data: data, sv: sv, up: up, user: user, lang: lang, L: L }),
                 tab === 'classcheck' && allowed('classcheck') && React.createElement(ClassroomCheck, { data: data, sv: sv, up: up, user: user, clsCols: clsCols, lang: lang, L: L }),
                 tab === 'teacherduties' && allowed('teacherduties') && React.createElement(TeacherDuties, { data: data, sv: sv, up: up, user: user, lang: lang, L: L }),
+                tab === 'teacherschedules' && React.createElement(TeachersSchedulesSection, { currentUser: user, lang: lang }),
                 tab === 'teachertasks' && allowed('teachertasks') && React.createElement(TeacherTasks, { data: data, sv: sv, up: up, user: user, lang: lang, L: L }),
                 tab === 'library' && allowed('library') && React.createElement(Library, { data: data, sv: sv, up: up, user: user, lang: lang, L: L, setTab: setTab }),
                 tab === 'parentmessages' && allowed('parentmessages') && React.createElement(ParentMessages, { data: data, sv: sv, up: up, user: user, lang: lang, L: L }),
@@ -12839,6 +12841,353 @@ function HSFollowUp({ data, sv, up, user, houses, lang, L }) {
                                 React.createElement("td", { style: { fontSize: 11 } }, r.loggedBy || '—')))))))));
             })())));
 }
+// ══════════════════ TEACHERS SCHEDULES SECTION ══════════════════
+const TeachersSchedulesSection = ({ currentUser, lang }) => {
+  const DAY_KEYS = ['sun','mon','tue','wed','thu'];
+  const DAYS_EN  = ['Sunday','Monday','Tuesday','Wednesday','Thursday'];
+  const DAY_SHT  = ['Sun','Mon','Tue','Wed','Thu'];
+  const isAr = lang === 'ar';
+
+  const [entries,   setEntries]   = React.useState([]);
+  const [view,      setView]      = React.useState('teacher');
+  const [selected,  setSelected]  = React.useState('');
+  const [searchQ,   setSearchQ]   = React.useState('');
+  const [nowMin,    setNowMin]    = React.useState(0);
+  const [nowDay,    setNowDay]    = React.useState('');
+  const [preview,   setPreview]   = React.useState(null);
+  const [status,    setStatus]    = React.useState('');
+  const [busy,      setBusy]      = React.useState(false);
+  const [showAdd,   setShowAdd]   = React.useState(false);
+  const [editItem,  setEditItem]  = React.useState(null);
+  const [showPaste, setShowPaste] = React.useState(false);
+  const [pasteText, setPasteText] = React.useState('');
+  const [form, setForm] = React.useState({ teacher:'', subject:'', classGroup:'', location:'', day:'sun', start:'08:00', end:'09:00' });
+
+  const isAdmin = ['admin','head_of_section','principal','deputy'].includes(currentUser?.role) || ['Bilal Omar Harb','Junaid Alam','Fares Nagadi','Fahed Alnajebi'].includes(currentUser?.name);
+
+  React.useEffect(() => {
+    const tick = () => {
+      const n = new Date(); setNowMin(n.getHours()*60+n.getMinutes());
+      const d = n.getDay(); setNowDay(d>=0&&d<=4?DAY_KEYS[d]:'');
+    };
+    tick(); const id = setInterval(tick,60000); return ()=>clearInterval(id);
+  }, []);
+
+  React.useEffect(() => {
+    const ref = firebase.database().ref('/btpro/teacherSchedules2');
+    const h = snap => { const v=snap.val()||{}; setEntries(Object.entries(v).map(([id,d])=>({id,...d}))); };
+    ref.on('value',h); return ()=>ref.off('value',h);
+  }, []);
+
+  const allTeachers = React.useMemo(()=>{const s=new Set(entries.map(e=>e.teacher).filter(Boolean));return[...s].sort();},[entries]);
+  const allClasses  = React.useMemo(()=>{const s=new Set(entries.map(e=>e.classGroup).filter(Boolean));return[...s].sort((a,b)=>{const na=parseInt(a),nb=parseInt(b);return na!==nb?na-nb:a.localeCompare(b);});},[entries]);
+  const names = React.useMemo(()=>{const list=view==='teacher'?allTeachers:view==='class'?allClasses:[];return searchQ?list.filter(n=>n.toLowerCase().includes(searchQ.toLowerCase())):list;},[view,allTeachers,allClasses,searchQ]);
+  const selEntries = React.useMemo(()=>{if(!selected)return[];return entries.filter(e=>view==='teacher'?e.teacher===selected:e.classGroup===selected);},[entries,selected,view]);
+  const byDay = React.useMemo(()=>{const m={};DAY_KEYS.forEach(d=>m[d]=[]);selEntries.forEach(e=>{if(m[e.day])m[e.day].push(e);});DAY_KEYS.forEach(d=>m[d].sort((a,b)=>a.startMin-b.startMin));return m;},[selEntries]);
+  const liveNow  = React.useMemo(()=>{if(!nowDay)return[];const a=entries.filter(e=>e.day===nowDay&&e.startMin<=nowMin&&e.endMin>nowMin);const t={};a.forEach(e=>{(t[e.teacher]||(t[e.teacher]=[])).push(e);});return Object.entries(t).map(([x,s])=>({teacher:x,slots:s})).sort((a,b)=>a.teacher.localeCompare(b.teacher));},[entries,nowDay,nowMin]);
+  const liveSoon = React.useMemo(()=>{if(!nowDay)return[];const a=entries.filter(e=>e.day===nowDay&&e.startMin>nowMin&&e.startMin<=nowMin+30);const t={};a.forEach(e=>{(t[e.teacher]||(t[e.teacher]=[])).push(e);});return Object.entries(t).map(([x,s])=>({teacher:x,slots:s})).sort((a,b)=>a.slots[0].startMin-b.slots[0].startMin);},[entries,nowDay,nowMin]);
+
+  const fmtM  = m=>{const h=Math.floor(m/60),n=m%60,ap=h>=12?'PM':'AM',hh=h%12||12;return`${hh}:${String(n).padStart(2,'0')} ${ap}`;};
+  const parseT= s=>{if(!s)return 0;const[h,m]=s.split(':').map(Number);return(h||0)*60+(m||0);};
+  const toInp = m=>{const h=Math.floor(m/60),n=m%60;return`${String(h).padStart(2,'0')}:${String(n).padStart(2,'0')}`;};
+
+  const SUBJ_COLORS = {
+    math:{bg:'#dbeafe',c:'#1e40af',b:'#93c5fd'}, english:{bg:'#dcfce7',c:'#166534',b:'#86efac'},
+    sci:{bg:'#fef9c3',c:'#854d0e',b:'#fde047'},   arabic:{bg:'#fce7f3',c:'#9d174d',b:'#f9a8d4'},
+    isl:{bg:'#ecfdf5',c:'#065f46',b:'#6ee7b7'},   ict:{bg:'#ede9fe',c:'#5b21b6',b:'#c4b5fd'},
+    pe:{bg:'#ffedd5',c:'#9a3412',b:'#fdba74'},     art:{bg:'#fdf4ff',c:'#7e22ce',b:'#e879f9'},
+    soc:{bg:'#f0fdf4',c:'#14532d',b:'#4ade80'},   biz:{bg:'#fff7ed',c:'#7c2d12',b:'#fb923c'},
+    geo:{bg:'#e0f2fe',c:'#075985',b:'#38bdf8'},   psych:{bg:'#faf5ff',c:'#581c87',b:'#d8b4fe'},
+    fr:{bg:'#fff1f2',c:'#881337',b:'#fda4af'},     def:{bg:'#f1f5f9',c:'#334155',b:'#cbd5e1'}
+  };
+  const subCol = s=>{const t=(s||'').toLowerCase();if(/math/.test(t))return SUBJ_COLORS.math;if(/eng/.test(t))return SUBJ_COLORS.english;if(/sci|bio|chem|phys|environ/.test(t))return SUBJ_COLORS.sci;if(/arb/.test(t))return SUBJ_COLORS.arabic;if(/isl/.test(t))return SUBJ_COLORS.isl;if(/ict|computer|digital/.test(t))return SUBJ_COLORS.ict;if(/p\.?e|physical ed/.test(t))return SUBJ_COLORS.pe;if(/art/.test(t))return SUBJ_COLORS.art;if(/social|studies/.test(t))return SUBJ_COLORS.soc;if(/business|econom/.test(t))return SUBJ_COLORS.biz;if(/geog|travel|tourism/.test(t))return SUBJ_COLORS.geo;if(/psych/.test(t))return SUBJ_COLORS.psych;if(/french/.test(t))return SUBJ_COLORS.fr;return SUBJ_COLORS.def;};
+
+  // PDF parser
+  const parseSchedulePDF = txt => {
+    const out=[];
+    const lines=txt.split('\n').map(l=>l.trim()).filter(Boolean);
+    const sections=[];let cur=null;
+    for(const line of lines){
+      const hm=line.match(/Waad\s+Academy[-–\s]+Boys[-–\s]+(.+)$/i);
+      if(hm){if(cur)sections.push(cur);cur={name:hm[1].trim().replace(/\s*-\s*Prime\s+Timetable.*/i,'').replace(/\s*\(\d+\)$/,'').trim(),body:[]};}
+      else if(cur){if(!/^\d{4}-\d{4}$/.test(line))cur.body.push(line);}
+    }
+    if(cur)sections.push(cur);
+    if(sections.length===0){
+      for(const line of lines){const p=line.split('|').map(s=>s.trim());if(p.length>=4&&p[0]&&p[2]&&p[3]){const[teacher,day,start,end,subject='',classGroup='',location='']=p;const dk=['sun','mon','tue','wed','thu'].find(d=>day.toLowerCase().startsWith(d))||day.slice(0,3).toLowerCase();out.push({teacher,subject,classGroup,location,day:dk,startMin:parseT(start),endMin:parseT(end)});}}
+      return out;
+    }
+    const isTime=s=>/^\d{1,2}:\d{2}$/.test(s);
+    const isDayN=s=>/^(sunday|monday|tuesday|wednesday|thursday)$/i.test(s);
+    const isClsC=s=>/^\d{1,2}[BGORbgor]$/.test(s);
+    const isLoc =s=>/^(lab|court|library|ict|options|room)/i.test(s);
+    const isTchI=s=>/^[A-Z]\.\s/.test(s);
+    const isSubj=s=>/^[A-Z][a-zA-Z\s\.]{1,}$/.test(s)&&!isClsC(s)&&!isDayN(s)&&s.length>2;
+    const dayOf=(body,idx)=>{const dm={sunday:'sun',monday:'mon',tuesday:'tue',wednesday:'wed',thursday:'thu'};for(let j=idx;j>=0;j--){const m=dm[(body[j]||'').toLowerCase()];if(m)return m;}return'';};
+    for(const sec of sections){
+      const secIsClass=isClsC(sec.name);
+      for(let i=0;i<sec.body.length;i++){
+        if(!isTime(sec.body[i])||i+1>=sec.body.length||!isTime(sec.body[i+1]))continue;
+        const startMin=parseT(sec.body[i]),endMin=parseT(sec.body[i+1]),day=dayOf(sec.body,i);
+        let teacher='',subject='',classGroup='',location='';
+        for(let j=i-1;j>=Math.max(0,i-10);j--){
+          const l=sec.body[j];if(!l||isTime(l)||isDayN(l)||/^\d{4}/.test(l))continue;
+          if(!classGroup&&isClsC(l)){classGroup=l;continue;}
+          if(!location&&isLoc(l)){location=l;continue;}
+          if(!teacher&&isTchI(l)){teacher=l;continue;}
+          if(!subject&&isSubj(l)){subject=l;continue;}
+        }
+        if(secIsClass&&!classGroup)classGroup=sec.name;
+        if(!secIsClass&&!teacher)teacher=sec.name;
+        if(subject||classGroup||teacher)out.push({teacher:teacher||sec.name,subject:subject||'(Class)',classGroup,location,day,startMin,endMin});
+        i++;
+      }
+    }
+    return out;
+  };
+
+  const handlePDF = async e => {
+    const file=e.target.files[0];if(!file)return;e.target.value='';
+    setBusy(true);setStatus('Loading PDF...');
+    try{
+      if(!window.pdfjsLib)throw new Error('pdf.js not loaded');
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const ab=await file.arrayBuffer();
+      const doc=await window.pdfjsLib.getDocument({data:ab}).promise;
+      setStatus(`Reading ${doc.numPages} pages...`);
+      let txt='';
+      for(let p=1;p<=doc.numPages;p++){
+        const pg=await doc.getPage(p);const tc=await pg.getTextContent();
+        const items=tc.items.map(it=>({text:it.str.trim(),x:Math.round(it.transform[4]),y:Math.round(it.transform[5])})).filter(it=>it.text).sort((a,b)=>b.y!==a.y?b.y-a.y:a.x-b.x);
+        txt+='\n'+items.map(i=>i.text).join('\n');
+      }
+      setStatus('Parsing...');
+      const parsed=parseSchedulePDF(txt);
+      if(parsed.length===0){setStatus('⚠️ Parser found 0 entries. Try the Paste Text option — copy all text from the PDF and paste it there.');setBusy(false);return;}
+      setPreview({entries:parsed,name:file.name});setStatus(`✅ Found ${parsed.length} slots`);
+    }catch(err){setStatus('❌ '+err.message);}
+    setBusy(false);
+  };
+
+  const confirmImport = async mode => {
+    if(!preview)return;setBusy(true);setStatus('Saving...');
+    const ref=firebase.database().ref('/btpro/teacherSchedules2');
+    if(mode==='replace')await ref.remove();
+    const batch={};
+    preview.entries.forEach(e=>{const k=ref.push().key;batch[k]={teacher:e.teacher||'',subject:e.subject||'',classGroup:e.classGroup||'',location:e.location||'',day:e.day||'sun',startMin:e.startMin||0,endMin:e.endMin||0,importedAt:Date.now()};});
+    await ref.update(batch);
+    setStatus(`✅ Saved ${preview.entries.length} entries`);setPreview(null);setBusy(false);
+  };
+
+  const importPaste = async () => {
+    if(!pasteText.trim())return;setBusy(true);setStatus('Parsing...');
+    const parsed=parseSchedulePDF(pasteText);
+    if(parsed.length===0){setStatus('❌ Nothing found. Use format: Teacher|Day|HH:MM|HH:MM|Subject|Class|Location, one per line');setBusy(false);return;}
+    setPreview({entries:parsed,name:'Pasted text'});setStatus(`Found ${parsed.length} entries`);setBusy(false);
+  };
+
+  const saveForm = async () => {
+    if(!form.teacher||!form.subject)return;
+    const data={teacher:form.teacher.trim(),subject:form.subject.trim(),classGroup:form.classGroup.trim(),location:form.location.trim(),day:form.day,startMin:parseT(form.start),endMin:parseT(form.end),updatedAt:Date.now()};
+    if(editItem)await firebase.database().ref('/btpro/teacherSchedules2/'+editItem.id).update(data);
+    else await firebase.database().ref('/btpro/teacherSchedules2').push(data);
+    setEditItem(null);setShowAdd(false);setForm({teacher:'',subject:'',classGroup:'',location:'',day:'sun',start:'08:00',end:'09:00'});
+  };
+
+  const deleteSlot = async id=>{if(!window.confirm('Delete this slot?'))return;await firebase.database().ref('/btpro/teacherSchedules2/'+id).remove();};
+  const clearAll   = async ()=>{if(!window.confirm('Delete ALL schedule data? This cannot be undone.'))return;await firebase.database().ref('/btpro/teacherSchedules2').remove();};
+
+  const fld=(k,v)=>setForm(f=>({...f,[k]:v}));
+  const R=React.createElement;
+  const s_card  ={background:'#fff',border:'1px solid #e2e8f0',borderRadius:10,padding:16,marginBottom:14};
+  const s_btn   =(bg='#1a73e8')=>({padding:'6px 14px',background:bg,color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontSize:13,fontFamily:'inherit'});
+  const s_ghost  ={padding:'6px 10px',background:'#f1f5f9',color:'#64748b',border:'1px solid #e2e8f0',borderRadius:6,cursor:'pointer',fontSize:12,fontFamily:'inherit'};
+  const s_inp    ={width:'100%',padding:'6px 9px',border:'1px solid #cbd5e1',borderRadius:6,fontSize:13,fontFamily:'inherit',boxSizing:'border-box'};
+  const s_lbl    ={fontSize:11,color:'#64748b',display:'block',marginBottom:3};
+
+  return R('div',{style:{display:'flex',height:'calc(100vh - 56px)',overflow:'hidden',background:'#f0f4f8'}},
+
+    // ── SIDEBAR ──
+    R('div',{style:{width:230,minWidth:200,borderRight:'1px solid #e2e8f0',display:'flex',flexDirection:'column',background:'#fff',flexShrink:0}},
+
+      R('div',{style:{padding:'10px 10px 8px',borderBottom:'1px solid #e2e8f0'}},
+        R('div',{style:{display:'flex',gap:4,marginBottom:8}},
+          ...[['teacher',isAr?'👤 معلم':'👤 Teacher'],['class',isAr?'🏫 فصل':'🏫 Class'],['locator',isAr?'📍 الآن':'📍 Live']].map(([k,l])=>
+            R('button',{key:k,onClick:()=>{setView(k);setSelected('');setSearchQ('');},style:{flex:1,padding:'6px 2px',fontSize:11,fontWeight:500,border:'none',cursor:'pointer',borderRadius:6,fontFamily:'inherit',background:view===k?'#1a73e8':'#f1f5f9',color:view===k?'#fff':'#475569'}},l)
+          )
+        ),
+        view!=='locator'&&R('input',{value:searchQ,onChange:e=>setSearchQ(e.target.value),placeholder:view==='teacher'?(isAr?'ابحث عن معلم...':'Search teacher...'):(isAr?'ابحث عن فصل...':'Search class...'),style:{...s_inp,marginBottom:0}})
+      ),
+
+      R('div',{style:{flex:1,overflowY:'auto',padding:'8px 8px'}},
+        view==='locator'
+          ? R('div',null,
+              R('div',{style:{fontSize:11,color:'#94a3b8',padding:'0 2px',marginBottom:8}},
+                nowDay?`${DAYS_EN[DAY_KEYS.indexOf(nowDay)]} · ${fmtM(nowMin)}`:(isAr?'عطلة':'Weekend')
+              ),
+              liveNow.length>0&&R('div',null,
+                R('div',{style:{fontSize:11,fontWeight:700,color:'#059669',marginBottom:5}},isAr?'🟢 يدرس الآن':'🟢 NOW IN CLASS'),
+                ...liveNow.map(({teacher,slots})=>R('button',{key:teacher,onClick:()=>{setView('teacher');setSelected(teacher);},style:{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',marginBottom:3,background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:6,cursor:'pointer'}},
+                  R('div',{style:{fontSize:12,fontWeight:600,color:'#065f46'}},teacher),
+                  ...slots.map((sl,i)=>R('div',{key:i,style:{fontSize:11,color:'#059669'}},`${sl.subject}${sl.classGroup?' · '+sl.classGroup:''}${sl.location?' · '+sl.location:''}`))
+                ))
+              ),
+              liveSoon.length>0&&R('div',{style:{marginTop:10}},
+                R('div',{style:{fontSize:11,fontWeight:700,color:'#d97706',marginBottom:5}},isAr?'🟡 يبدأ قريباً':'🟡 STARTING SOON'),
+                ...liveSoon.map(({teacher,slots})=>R('button',{key:teacher,onClick:()=>{setView('teacher');setSelected(teacher);},style:{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',marginBottom:3,background:'#fffbeb',border:'1px solid #fde68a',borderRadius:6,cursor:'pointer'}},
+                  R('div',{style:{fontSize:12,fontWeight:600,color:'#92400e'}},teacher),
+                  ...slots.map((sl,i)=>R('div',{key:i,style:{fontSize:11,color:'#b45309'}},`${sl.subject} · ${fmtM(sl.startMin)}`))
+                ))
+              ),
+              liveNow.length===0&&liveSoon.length===0&&R('p',{style:{color:'#94a3b8',fontSize:12,textAlign:'center',marginTop:20}},nowDay?(isAr?'لا توجد حصص الآن':'No classes right now'):(isAr?'المدرسة مغلقة':'School closed'))
+            )
+          : names.length===0
+            ? R('p',{style:{color:'#94a3b8',fontSize:13,textAlign:'center',marginTop:20}},entries.length===0?(isAr?'لم يتم استيراد جداول بعد':'No schedules yet'):(isAr?'لا نتائج':'No results'))
+            : R('div',null,...names.map(n=>R('button',{key:n,onClick:()=>setSelected(n),style:{display:'block',width:'100%',textAlign:'left',padding:'8px 10px',background:selected===n?'#eff6ff':'transparent',border:selected===n?'1px solid #bfdbfe':'1px solid transparent',borderRadius:6,marginBottom:2,cursor:'pointer',fontSize:13,color:selected===n?'#1d4ed8':'#374151',fontWeight:selected===n?500:400,fontFamily:'inherit'}},n)))
+      ),
+
+      view!=='locator'&&R('div',{style:{padding:'6px 12px',borderTop:'1px solid #e2e8f0',fontSize:11,color:'#94a3b8'}},
+        `${view==='teacher'?allTeachers.length:allClasses.length} ${view==='teacher'?(isAr?'معلم':'teachers'):(isAr?'فصل':'classes')} · ${entries.length} ${isAr?'حصة':'slots'}`
+      )
+    ),
+
+    // ── MAIN PANEL ──
+    R('div',{style:{flex:1,overflowY:'auto',padding:20}},
+
+      // Header
+      R('div',{style:{display:'flex',alignItems:'center',gap:8,marginBottom:14,flexWrap:'wrap'}},
+        R('h2',{style:{margin:0,fontSize:17,fontWeight:600,color:'#1e293b',flex:1}},
+          selected?`${view==='teacher'?'👤':'🏫'} ${selected}`:(isAr?'📅 جداول المعلمين':'📅 Teachers Schedules')
+        ),
+        isAdmin&&R('button',{style:s_btn('#1a73e8'),onClick:()=>{setShowAdd(true);setEditItem(null);}},isAr?'+ إضافة حصة':'+ Add Slot'),
+        isAdmin&&R('label',{style:{...s_btn('#16a34a'),cursor:'pointer'}},
+          isAr?'📤 استيراد PDF':'📤 Import PDF',
+          R('input',{type:'file',accept:'.pdf',style:{display:'none'},onChange:handlePDF,disabled:busy})
+        ),
+        isAdmin&&R('button',{style:s_btn('#6366f1'),onClick:()=>setShowPaste(!showPaste)},isAr?'📋 لصق نص':'📋 Paste Text'),
+        isAdmin&&entries.length>0&&R('button',{style:{...s_ghost,color:'#dc2626',background:'#fee2e2',border:'1px solid #fca5a5'},onClick:clearAll},isAr?'🗑 حذف الكل':'🗑 Clear All')
+      ),
+
+      // Status
+      status&&R('div',{style:{padding:'8px 12px',borderRadius:8,marginBottom:12,fontSize:13,background:status.startsWith('❌')||status.startsWith('⚠️')?'#fee2e2':'#f0fdf4',border:`1px solid ${status.startsWith('❌')||status.startsWith('⚠️')?'#fca5a5':'#bbf7d0'}`,color:status.startsWith('❌')||status.startsWith('⚠️')?'#dc2626':'#166534',display:'flex',alignItems:'center',justifyContent:'space-between'}},
+        R('span',null,status,busy&&' ⏳'),
+        !busy&&R('button',{onClick:()=>setStatus(''),style:{background:'none',border:'none',cursor:'pointer',color:'inherit',fontSize:14}},  '✕')
+      ),
+
+      // Import preview
+      preview&&R('div',{style:s_card},
+        R('div',{style:{display:'flex',alignItems:'center',gap:10,marginBottom:10}},
+          R('strong',{style:{flex:1,fontSize:14}},`📥 ${preview.name} — ${preview.entries.length} ${isAr?'حصة':'slots'}`),
+          R('button',{onClick:()=>setPreview(null),style:{background:'none',border:'none',cursor:'pointer',fontSize:18,color:'#94a3b8'}},'×')
+        ),
+        R('div',{style:{maxHeight:220,overflowY:'auto',marginBottom:12,border:'1px solid #e2e8f0',borderRadius:6}},
+          R('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:11}},
+            R('thead',null,R('tr',{style:{background:'#f8fafc'}},
+              ...['Teacher','Day','Start','End','Subject','Class','Location'].map(h=>R('th',{key:h,style:{padding:'5px 7px',textAlign:'left',borderBottom:'1px solid #e2e8f0',fontWeight:500,color:'#64748b'}},h))
+            )),
+            R('tbody',null,
+              ...preview.entries.slice(0,75).map((e,i)=>R('tr',{key:i,style:{borderBottom:'1px solid #f8fafc',background:i%2?'#fafafa':'#fff'}},
+                ...[e.teacher,e.day,toInp(e.startMin),toInp(e.endMin),e.subject,e.classGroup,e.location].map((v,j)=>R('td',{key:j,style:{padding:'4px 7px',color:'#374151'}},v))
+              )),
+              preview.entries.length>75&&R('tr',null,R('td',{colSpan:7,style:{padding:'6px',color:'#94a3b8',textAlign:'center'}},`...+${preview.entries.length-75} more`))
+            )
+          )
+        ),
+        R('div',{style:{display:'flex',gap:8}},
+          R('button',{style:s_btn('#dc2626'),onClick:()=>confirmImport('replace')},isAr?'⚠️ استبدال الكل':'⚠️ Replace All & Import'),
+          R('button',{style:s_btn('#16a34a'),onClick:()=>confirmImport('add')},isAr?'➕ إضافة':'➕ Add to Existing'),
+          R('button',{style:s_ghost,onClick:()=>{setPreview(null);setStatus('');}},isAr?'إلغاء':'Cancel')
+        )
+      ),
+
+      // Paste helper
+      showPaste&&R('div',{style:s_card},
+        R('div',{style:{display:'flex',alignItems:'center',marginBottom:8}},
+          R('strong',{style:{flex:1,fontSize:14}},isAr?'📋 لصق نص الجدول':'📋 Paste Schedule Text'),
+          R('button',{onClick:()=>setShowPaste(false),style:{background:'none',border:'none',cursor:'pointer',color:'#94a3b8'}},'✕')
+        ),
+        R('p',{style:{fontSize:12,color:'#64748b',margin:'0 0 8px'}},
+          isAr?'الصق النص المنسوخ من PDF مباشرة، أو استخدم تنسيق pipe:':'Paste text copied from PDF, or use pipe format: ',
+          R('code',{style:{fontSize:11,background:'#f8fafc',padding:'2px 5px',borderRadius:3}},'Teacher|Day|HH:MM|HH:MM|Subject|Class|Location')
+        ),
+        R('textarea',{value:pasteText,onChange:e=>setPasteText(e.target.value),placeholder:isAr?'الصق محتوى PDF هنا...':'Paste PDF content here...',style:{width:'100%',height:130,fontSize:12,border:'1px solid #e2e8f0',borderRadius:6,padding:8,boxSizing:'border-box',fontFamily:'monospace',resize:'vertical'}}),
+        R('div',{style:{display:'flex',gap:8,marginTop:8}},
+          R('button',{style:s_btn('#6366f1'),onClick:importPaste,disabled:busy},isAr?'معالجة وعرض':'Parse & Preview'),
+          R('button',{style:s_ghost,onClick:()=>{setShowPaste(false);setPasteText('');}},isAr?'إلغاء':'Cancel')
+        )
+      ),
+
+      // Add/Edit form
+      (showAdd||editItem)&&R('div',{style:s_card},
+        R('h3',{style:{margin:'0 0 12px',fontSize:14}},editItem?(isAr?'✏️ تعديل الحصة':'✏️ Edit Slot'):(isAr?'➕ إضافة حصة':'➕ Add Slot')),
+        R('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:10}},
+          R('div',null,R('label',{style:s_lbl},isAr?'المعلم *':'Teacher *'),
+            R('input',{list:'tch-list',value:form.teacher,onChange:e=>fld('teacher',e.target.value),style:s_inp}),
+            R('datalist',{id:'tch-list'},...allTeachers.map(t=>R('option',{key:t,value:t})))
+          ),
+          R('div',null,R('label',{style:s_lbl},isAr?'المادة *':'Subject *'),R('input',{value:form.subject,onChange:e=>fld('subject',e.target.value),style:s_inp})),
+          R('div',null,R('label',{style:s_lbl},isAr?'الفصل':'Class'),R('input',{value:form.classGroup,onChange:e=>fld('classGroup',e.target.value),placeholder:'e.g. 7B',style:s_inp})),
+          R('div',null,R('label',{style:s_lbl},isAr?'اليوم':'Day'),
+            R('select',{value:form.day,onChange:e=>fld('day',e.target.value),style:s_inp},
+              ...DAY_KEYS.map((d,i)=>R('option',{key:d,value:d},DAYS_EN[i]))
+            )
+          ),
+          R('div',null,R('label',{style:s_lbl},isAr?'البداية':'Start'),R('input',{type:'time',value:form.start,onChange:e=>fld('start',e.target.value),style:s_inp})),
+          R('div',null,R('label',{style:s_lbl},isAr?'النهاية':'End'),R('input',{type:'time',value:form.end,onChange:e=>fld('end',e.target.value),style:s_inp})),
+          R('div',{style:{gridColumn:'1/4'}},R('label',{style:s_lbl},isAr?'الموقع (اختياري)':'Location (optional)'),R('input',{value:form.location,onChange:e=>fld('location',e.target.value),placeholder:'e.g. ICT Lab 2, Court 1, Library',style:s_inp}))
+        ),
+        R('div',{style:{display:'flex',gap:8,marginTop:12}},
+          R('button',{style:s_btn(),onClick:saveForm},editItem?(isAr?'حفظ التغييرات':'Save Changes'):(isAr?'إضافة':'Add')),
+          R('button',{style:s_ghost,onClick:()=>{setShowAdd(false);setEditItem(null);setForm({teacher:'',subject:'',classGroup:'',location:'',day:'sun',start:'08:00',end:'09:00'});}},isAr?'إلغاء':'Cancel')
+        )
+      ),
+
+      // Weekly grid
+      selected&&view!=='locator'&&R('div',{style:{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:8}},
+        ...DAY_KEYS.map((day,di)=>R('div',{key:day},
+          R('div',{style:{padding:'6px 8px',textAlign:'center',fontWeight:600,fontSize:13,background:nowDay===day?'#1a73e8':'#f1f5f9',color:nowDay===day?'#fff':'#64748b',borderRadius:'8px 8px 0 0',marginBottom:4}},DAY_SHT[di]),
+          byDay[day].length===0
+            ? R('div',{style:{minHeight:60,display:'flex',alignItems:'center',justifyContent:'center',color:'#cbd5e1',fontSize:22,background:'#fafafa',border:'1px dashed #e2e8f0',borderRadius:'0 0 8px 8px'}},'—')
+            : R('div',null,...byDay[day].map(e=>{
+                const cc=subCol(e.subject);
+                const isNow=nowDay===day&&e.startMin<=nowMin&&e.endMin>nowMin;
+                return R('div',{key:e.id,style:{background:cc.bg,border:`1px solid ${isNow?'#f59e0b':cc.b}`,borderLeft:`3px solid ${isNow?'#f59e0b':cc.b}`,borderRadius:6,padding:'7px 8px',marginBottom:5,position:'relative',boxShadow:isNow?'0 0 0 2px #fde68a':'none'}},
+                  isNow&&R('div',{style:{position:'absolute',top:-1,right:-1,background:'#f59e0b',color:'#fff',fontSize:9,padding:'1px 5px',borderRadius:'0 5px 0 5px',fontWeight:700}},'NOW'),
+                  R('div',{style:{fontWeight:600,color:cc.c,fontSize:13,lineHeight:1.2}},e.subject),
+                  R('div',{style:{color:cc.c,fontSize:11,opacity:.85,marginTop:1}},view==='teacher'?e.classGroup:e.teacher),
+                  e.location&&R('div',{style:{color:'#64748b',fontSize:10,marginTop:1}},e.location),
+                  R('div',{style:{color:'#64748b',fontSize:10,marginTop:2}},`${fmtM(e.startMin)} – ${fmtM(e.endMin)}`),
+                  isAdmin&&R('div',{style:{display:'flex',gap:3,marginTop:4}},
+                    R('button',{onClick:()=>{setEditItem(e);setForm({teacher:e.teacher,subject:e.subject,classGroup:e.classGroup,location:e.location,day:e.day,start:toInp(e.startMin),end:toInp(e.endMin)});},style:{fontSize:10,padding:'1px 5px',background:'#dbeafe',color:'#1d4ed8',border:'none',borderRadius:3,cursor:'pointer',fontFamily:'inherit'}},isAr?'تعديل':'Edit'),
+                    R('button',{onClick:()=>deleteSlot(e.id),style:{fontSize:10,padding:'1px 5px',background:'#fee2e2',color:'#dc2626',border:'none',borderRadius:3,cursor:'pointer',fontFamily:'inherit'}},'✕')
+                  )
+                );
+              }))
+        ))
+      ),
+
+      // Empty states
+      !selected&&view!=='locator'&&entries.length===0&&R('div',{style:{textAlign:'center',padding:'50px 20px',color:'#94a3b8'}},
+        R('div',{style:{fontSize:52,marginBottom:12}},'📅'),
+        R('h3',{style:{color:'#64748b',marginBottom:6}},isAr?'لم يتم استيراد جداول بعد':'No schedules imported yet'),
+        R('p',{style:{fontSize:13,maxWidth:380,margin:'0 auto 14px'}},isAr?'استخدم زر "استيراد PDF" أعلاه لاستيراد جداول المعلمين أو الفصول.':'Import your schedule PDFs using the buttons above. Both teacher-view and class-view PDFs are supported.'),
+        R('div',{style:{background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:8,padding:12,textAlign:'left',maxWidth:400,margin:'0 auto',fontSize:12}},
+          R('b',{style:{color:'#475569'}},'Supported formats:'),
+          R('div',{style:{marginTop:5,lineHeight:1.9}},
+            R('div',null,'✅ PrimeTimetable PDF (teacher columns)'),
+            R('div',null,'✅ Class schedule PDF (4B–12O pages)'),
+            R('div',null,'✅ Pipe text: Teacher|Day|Start|End|Subject|Class')
+          )
+        )
+      ),
+      !selected&&view!=='locator'&&entries.length>0&&R('div',{style:{textAlign:'center',marginTop:60,color:'#94a3b8'}},
+        R('div',{style:{fontSize:36,marginBottom:8}},'👈'),
+        R('p',null,isAr?`اختر ${view==='teacher'?'معلماً':'فصلاً'} من القائمة`:`Select a ${view==='teacher'?'teacher':'class'} to view their schedule`)
+      )
+    )
+  );
+};
+
 // ══════════════════ RENDER ══════════════════
 ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App, null));
 
