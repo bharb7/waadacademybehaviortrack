@@ -2920,7 +2920,6 @@ function CombinedSettings({ data, sv, up, user, houses, clsCols, lang, L }) {
     const tabs = [
         { id: 'housesclasses', ic: '🏠', lb: isAr ? 'البيوت والفصول' : 'Houses & Classes' },
         { id: 'staff', ic: '👨‍👩‍👧', lb: isAr ? 'الموظفون والمستخدمون' : 'Staff & Users' },
-        { id: 'fixnames', ic: '🔧', lb: isAr ? 'إصلاح أسماء المعلمين' : 'Fix Teacher Names' },
     ];
     return (React.createElement("div", null,
         React.createElement("div", { style: { display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 18, borderBottom: '2px solid var(--border,#e2e8f0)', paddingBottom: 4 } }, tabs.map(t => (React.createElement("button", { key: t.id, className: `btn bsm ${sub === t.id ? 'btp' : 'btng'}`, style: { borderRadius: '6px 6px 0 0', marginBottom: -2, borderBottom: sub === t.id ? '2px solid var(--gold,#e94560)' : '2px solid transparent' }, onClick: () => setSub(t.id) },
@@ -2928,156 +2927,7 @@ function CombinedSettings({ data, sv, up, user, houses, clsCols, lang, L }) {
             " ",
             t.lb)))),
         sub === 'housesclasses' && React.createElement(HouseClassSettings, { data: data, sv: sv, up: up, houses: houses, clsCols: clsCols, lang: lang, L: L }),
-        sub === 'staff' && React.createElement(StaffMod, { data: data, sv: sv, up: up, user: user, lang: lang, L: L }),
-        sub === 'fixnames' && React.createElement(FixTeacherNames, { data: data, lang: lang })));
-}
-
-// ── FixTeacherNames panel (Settings sub-tab) ──────────────────────────────
-function FixTeacherNames({ data, lang }) {
-    const isAr = lang === 'ar';
-    const PDF_NAMES = ["Abduljalil Kiwan","Abdulkhaliq Alghamdi","Abdulrahman Aljilani","Abdulrahman Alzahrani","Adam Griss","Ahmed Albaz","Ahmed Almaghrabi","Ahmed Hemida","Alaa Hussein","Aladdin Alferjani","Ali Saleh","Anthony Khalil","Fahad Hakami","Fuad BinYoussef","Georges Ibrahim","Hussam","Ibrahim Alqurashi","Imran Asghar","Junaid Golandaz","Majed Alofi","Mark Moe","Mogamad Lukie","Mohammad Akhtar","Mohammad Alghamdi","Mohammad Korkomaz","Mohammad Zafar","Mohammed Abdulfattah","Mohammed Fahruddin","Mohammed Hilmi","Mohammed Ismail","Mohammed Ramadan","Mohammed Saleh","Nader Abouzeid","Nasir Malik","Nihma Almawla","Omar Abdouni","Omar Alkunaydri","Osama Althuwaybi","Rayan Ashgan","Said Hussain","Saleh Alattas","Shayan Siddiqui","Shujaat Shah","Sleiman Alkarim","Sohaib Liaquat","Souhaim Najah","Yamen Zahreddine"];
-    const SKIP = ["bilal omar harb","junaid alam","fares nagadi","fahed alnajebi","motasem namazi","mohammed alsayid","mohammed alsamadani"];
-    const [rows, setRows] = React.useState([]);
-    const [log, setLog] = React.useState([]);
-    const [applying, setApplying] = React.useState(false);
-    const [done, setDone] = React.useState(false);
-    const [sel, setSel] = React.useState({});
-
-    const cln = s => (s||'').toLowerCase().replace(/\./g,'').replace(/\s+/g,' ').trim();
-    const bestMatch = abbr => {
-        const ac=cln(abbr), ap=ac.split(' ');
-        const aInit=ap[0]?.[0]||'', aLast=ap[ap.length-1]||'';
-        let best=null, bestScore=0;
-        for(const fn of PDF_NAMES){
-            const fc=cln(fn), fp=fc.split(' ');
-            const fInit=fp[0]?.[0]||'', fLast=fp[fp.length-1]||'';
-            let score=0;
-            if(fc===ac) score=100;
-            else if(fc.includes(ac)||ac.includes(fc)) score=90;
-            else{
-                if(aInit===fInit&&aLast===fLast&&aLast.length>2) score=88;
-                else if(aLast===fLast&&aLast.length>4) score=80;
-                else if(ap.some(t=>t.length>3&&fp.includes(t))) score=70;
-            }
-            if(score>bestScore){bestScore=score;best=fn;}
-        }
-        return bestScore>=70?{name:best,score:bestScore}:null;
-    };
-
-    const addLog = (msg, type='info') => setLog(p => [...p.slice(-40), {msg, type, ts: new Date().toLocaleTimeString()}]);
-
-    const buildRows = () => {
-        const teachers = Object.values(data.teachers || {});
-        const result = [];
-        teachers.forEach(t => {
-            const cur = (t.name||'').trim();
-            const isSkip = SKIP.includes(cln(cur));
-            const isAlready = PDF_NAMES.includes(cur);
-            const match = (!isSkip && !isAlready) ? bestMatch(cur) : null;
-            let status, newName = cur, color = '#64748b';
-            if(isSkip) { status = 'staff'; }
-            else if(isAlready) { status = 'correct'; }
-            else if(!match) { status = 'nomatch'; }
-            else { newName = match.name; status = match.score >= 88 ? 'high' : 'medium'; color = match.score >= 88 ? '#4ade80' : '#fbbf24'; }
-            result.push({id: t.id, cur, newName, status, score: match?.score, color});
-        });
-        result.sort((a,b) => a.cur.localeCompare(b.cur));
-        setRows(result);
-        // Auto-select high-confidence
-        const autoSel = {};
-        result.filter(r => r.status === 'high').forEach(r => autoSel[r.id] = true);
-        setSel(autoSel);
-        addLog(`Loaded ${result.length} teachers. ${Object.keys(autoSel).length} auto-selected (high confidence).`, 'ok');
-    };
-
-    const toggleSel = id => setSel(p => ({...p, [id]: !p[id]}));
-    const selAll = () => { const s={}; rows.filter(r=>r.status==='high'||r.status==='medium').forEach(r=>s[r.id]=true); setSel(s); };
-    const deselAll = () => setSel({});
-
-    const applyUpdates = async () => {
-        const toUpdate = rows.filter(r => sel[r.id] && r.newName !== r.cur);
-        if(!toUpdate.length){ alert('Nothing selected to update'); return; }
-        if(!window.confirm(`Update ${toUpdate.length} teacher name(s) in Firebase?`)) return;
-        setApplying(true);
-        let ok=0, fail=0;
-        for(const r of toUpdate){
-            try{
-                await db.ref('/btpro/teachers/'+r.id).update({name: r.newName});
-                addLog(`✅ "${r.cur}" → "${r.newName}"`, 'ok');
-                ok++;
-            }catch(e){
-                addLog(`❌ ${r.cur}: ${e.message}`, 'err');
-                fail++;
-            }
-        }
-        addLog(`Done: ${ok} updated, ${fail} failed.`, 'ok');
-        setApplying(false);
-        setDone(true);
-    };
-
-    const selCount = Object.values(sel).filter(Boolean).length;
-    const toChange = rows.filter(r => r.status==='high'||r.status==='medium');
-
-    return React.createElement('div', { className:'card', style:{marginTop:12} },
-        React.createElement('div', {style:{fontWeight:700,fontSize:14,marginBottom:6}}, '🔧 Fix Teacher Names — Match to PDF Full Names'),
-        React.createElement('div', {style:{fontSize:12,color:'#64748b',marginBottom:14}},
-            'Reads teachers from Firebase and matches abbreviated names (A. Griss) to full names (Adam Griss) from the official schedule PDFs.'),
-        rows.length === 0
-            ? React.createElement('button', {className:'btn btnp', onClick:buildRows}, '📋 Load & Analyse Teachers')
-            : React.createElement('div', null,
-                React.createElement('div', {style:{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap',alignItems:'center'}},
-                    React.createElement('button', {className:'btn btnp bsm', onClick:selAll}, '☑️ Select All Matches'),
-                    React.createElement('button', {className:'btn btng bsm', onClick:deselAll}, '☐ Deselect All'),
-                    React.createElement('span', {style:{fontSize:12,color:'#94a3b8'}}, `${selCount} selected · ${toChange.length} total changes available`)
-                ),
-                React.createElement('div', {style:{overflowX:'auto',marginBottom:12,borderRadius:8,border:'1px solid #e2e8f0',maxHeight:380,overflowY:'auto'}},
-                    React.createElement('table', {style:{width:'100%',borderCollapse:'collapse',fontSize:12}},
-                        React.createElement('thead', null,
-                            React.createElement('tr', {style:{background:'#f8fafc'}},
-                                React.createElement('th', {style:{padding:'8px 10px',textAlign:'left',color:'#64748b',fontWeight:600,fontSize:11}},'✓'),
-                                React.createElement('th', {style:{padding:'8px 10px',textAlign:'left',color:'#64748b',fontWeight:600,fontSize:11}},'Current Name'),
-                                React.createElement('th', {style:{padding:'8px 10px',textAlign:'left',color:'#64748b',fontWeight:600,fontSize:11}},'→ Full PDF Name'),
-                                React.createElement('th', {style:{padding:'8px 10px',textAlign:'left',color:'#64748b',fontWeight:600,fontSize:11}},'Status')
-                            )
-                        ),
-                        React.createElement('tbody', null,
-                            rows.map(r => {
-                                const disabled = r.status==='staff'||r.status==='correct'||r.status==='nomatch';
-                                const bgColor = sel[r.id] ? '#eff6ff' : '';
-                                const statusBadge = {
-                                    staff: ['#dbeafe','#1e40af','Staff'],
-                                    correct: ['#d1fae5','#065f46','✓ Correct'],
-                                    nomatch: ['#fee2e2','#991b1b','No match'],
-                                    high: ['#d1fae5','#065f46',`✓ ${r.score}%`],
-                                    medium: ['#fef3c7','#92400e',`⚠ ${r.score}%`]
-                                }[r.status] || ['#f1f5f9','#64748b','—'];
-                                return React.createElement('tr', {key:r.id, style:{borderBottom:'1px solid #e2e8f0',background:bgColor}},
-                                    React.createElement('td', {style:{padding:'6px 10px'}},
-                                        !disabled && React.createElement('input', {type:'checkbox', checked:!!sel[r.id], onChange:()=>toggleSel(r.id), style:{cursor:'pointer',accentColor:'#1a73e8'}})
-                                    ),
-                                    React.createElement('td', {style:{padding:'6px 10px',fontWeight:600,color:r.status==='correct'||r.status==='staff'?'#94a3b8':'#1a1a2e'}}, r.cur||'—'),
-                                    React.createElement('td', {style:{padding:'6px 10px',color:r.color,fontWeight:r.status==='high'?600:400}}, r.newName!==r.cur?r.newName:'—'),
-                                    React.createElement('td', {style:{padding:'6px 10px'}},
-                                        React.createElement('span', {style:{background:statusBadge[0],color:statusBadge[1],borderRadius:10,padding:'2px 8px',fontSize:10,fontWeight:600}}, statusBadge[2])
-                                    )
-                                );
-                            })
-                        )
-                    )
-                ),
-                React.createElement('button', {
-                    className:'btn btnp', onClick:applyUpdates,
-                    disabled:applying||selCount===0||done,
-                    style:{marginBottom:12}
-                }, applying?'⏳ Updating...':(done?'✅ Done!':'💾 Apply Updates to Firebase')),
-                done && React.createElement('div', {style:{fontSize:12,color:'#16a34a',marginBottom:8,fontWeight:600}},
-                    '✅ Names updated. Refresh the app to see changes everywhere.'),
-                log.length > 0 && React.createElement('div', {style:{background:'#f8fafc',borderRadius:8,padding:12,fontFamily:'monospace',fontSize:11,maxHeight:160,overflowY:'auto',border:'1px solid #e2e8f0'}},
-                    log.map((l,i) => React.createElement('div', {key:i, style:{color:l.type==='ok'?'#16a34a':l.type==='err'?'#dc2626':'#64748b',padding:'1px 0'}},
-                        `${l.ts} — ${l.msg}`))
-                )
-            )
-    );
+        sub === 'staff' && React.createElement(StaffMod, { data: data, sv: sv, up: up, user: user, lang: lang, L: L })));
 }
 // ══════════════════ PUBLIC STUDENT VOICE FORM ══════════════════
 // Shown to parents who scan the QR code (?parent=1 in URL). No login needed.
@@ -9377,6 +9227,57 @@ function StaffMod({ data, sv, up, user, lang, L }) {
     const allStaff = Object.values(data.staff || {});
     const active = data.activeUsers || {};
     const allTeachers = Object.values(data.teachers || {});
+
+    // ── Fix Teacher Names ─────────────────────────────────────
+    const [fixRunning, setFixRunning] = React.useState(false);
+    const [fixDone, setFixDone] = React.useState(false);
+    const [fixLog, setFixLog] = React.useState('');
+    const PDF_NAMES = ["Abduljalil Kiwan","Abdulkhaliq Alghamdi","Abdulrahman Aljilani","Abdulrahman Alzahrani","Adam Griss","Ahmed Albaz","Ahmed Almaghrabi","Ahmed Hemida","Alaa Hussein","Aladdin Alferjani","Ali Saleh","Anthony Khalil","Fahad Hakami","Fuad BinYoussef","Georges Ibrahim","Hussam","Ibrahim Alqurashi","Imran Asghar","Junaid Golandaz","Majed Alofi","Mark Moe","Mogamad Lukie","Mohammad Akhtar","Mohammad Alghamdi","Mohammad Korkomaz","Mohammad Zafar","Mohammed Abdulfattah","Mohammed Fahruddin","Mohammed Hilmi","Mohammed Ismail","Mohammed Ramadan","Mohammed Saleh","Nader Abouzeid","Nasir Malik","Nihma Almawla","Omar Abdouni","Omar Alkunaydri","Osama Althuwaybi","Rayan Ashgan","Said Hussain","Saleh Alattas","Shayan Siddiqui","Shujaat Shah","Sleiman Alkarim","Sohaib Liaquat","Souhaim Najah","Yamen Zahreddine"];
+    const SKIP_NAMES = ["bilal omar harb","junaid alam","fares nagadi","fahed alnajebi","motasem namazi","mohammed alsayid","mohammed alsamadani"];
+    const cln = s => (s||'').toLowerCase().replace(/\.| /g,' ').replace(/\.+/g,' ').replace(/\s+/g,' ').trim();
+    const bestPdfMatch = abbr => {
+        const ac=cln(abbr), ap=ac.split(' ');
+        const aInit=(ap[0]||'')[0]||'', aLast=ap[ap.length-1]||'';
+        let best=null, bestScore=0;
+        for(const fn of PDF_NAMES){
+            const fc=cln(fn), fp=fc.split(' ');
+            const fInit=(fp[0]||'')[0]||'', fLast=fp[fp.length-1]||'';
+            let score=0;
+            if(fc===ac) score=100;
+            else if(fc.includes(ac)||ac.includes(fc)) score=90;
+            else{
+                if(aInit===fInit&&aLast===fLast&&aLast.length>2) score=88;
+                else if(aLast===fLast&&aLast.length>4) score=80;
+                else if(ap.some(t=>t.length>3&&fp.includes(t))) score=70;
+            }
+            if(score>bestScore){bestScore=score;best=fn;}
+        }
+        return bestScore>=70?{name:best,score:bestScore}:null;
+    };
+    const runFixNames = async () => {
+        const toFix = allTeachers.filter(t => {
+            const cur=(t.name||'').trim();
+            if(SKIP_NAMES.includes(cln(cur))) return false;
+            if(PDF_NAMES.includes(cur)) return false;
+            return !!bestPdfMatch(cur);
+        });
+        if(!toFix.length){ alert('All teacher names already match PDF names!'); return; }
+        const preview = toFix.slice(0,5).map(t => `"${t.name}" → "${bestPdfMatch(t.name).name}"`).join('\n') + (toFix.length>5?`\n...and ${toFix.length-5} more`:'');
+        if(!window.confirm(`Fix ${toFix.length} teacher name(s)?\n\n${preview}`)) return;
+        setFixRunning(true); setFixLog(''); let ok=0,fail=0;
+        for(const t of toFix){
+            const m=bestPdfMatch(t.name);
+            if(!m) continue;
+            try{
+                await db.ref('/btpro/teachers/'+t.id).update({name:m.name});
+                setFixLog(p=>p+`✅ "${t.name}" → "${m.name}"\n`);
+                ok++;
+            }catch(e){ setFixLog(p=>p+`❌ ${t.name}: ${e.message}\n`); fail++; }
+        }
+        setFixLog(p=>p+`\nDone: ${ok} updated, ${fail} failed.`);
+        setFixRunning(false); setFixDone(true);
+    };
+    // ─────────────────────────────────────────────────────────
     const staff = allStaff.filter(s => { const q = staffSearch.trim().toLowerCase(); if (!q)
         return true; return (s.name || '').toLowerCase().includes(q) || (s.nameAr || '').includes(staffSearch.trim()) || (s.role || '').toLowerCase().includes(q); });
     const teachers = allTeachers.filter(t => { const q = teacherSearch.trim().toLowerCase(); if (!q)
@@ -9576,6 +9477,13 @@ function StaffMod({ data, sv, up, user, lang, L }) {
             React.createElement("div", { style: { display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' } },
                 React.createElement("button", { className: "btn btnp", onClick: () => setShowAddT(true) }, isAr ? '+ إضافة معلم' : '+ Add Teacher'),
                 React.createElement("button", { className: "btn btng", onClick: exportTeachersCSV },
+                React.createElement("button", {
+                    className: "btn bsm",
+                    style: {background: fixDone?'#16a34a':'#f59e0b', color:'#fff', fontWeight:700},
+                    onClick: runFixNames,
+                    disabled: fixRunning,
+                    title: "Matches abbreviated names (A. Griss) to full PDF names (Adam Griss)"
+                }, fixRunning ? '⏳ Fixing...' : fixDone ? '✅ Names Fixed!' : '🔧 Fix Names → Full PDF Names'),
                     "\u2B07 ",
                     isAr ? 'تصدير CSV' : 'Export CSV'),
                 React.createElement("button", { className: "btn btng", onClick: printTeachersList },
@@ -9583,6 +9491,7 @@ function StaffMod({ data, sv, up, user, lang, L }) {
                     isAr ? 'طباعة القائمة' : 'Print List'),
                 React.createElement("div", { style: { flex: 1, minWidth: 200, maxWidth: 320 }, className: "sb" },
                     React.createElement("input", { placeholder: isAr ? 'ابحث عن معلم بالاسم أو المادة أو البريد…' : 'Search teachers by name, subject, or email…', value: teacherSearch, onChange: e => setTeacherSearch(e.target.value) })),
+                fixLog && React.createElement('div', { style:{background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:8,padding:'10px 14px',marginBottom:10,fontFamily:'monospace',fontSize:11,whiteSpace:'pre-wrap',maxHeight:140,overflowY:'auto',color:'#14532d',width:'100%'} }, fixLog),
                 teacherSearch && React.createElement("span", { style: { fontSize: 12, color: '#64748b' } },
                     teachers.length,
                     " ",
