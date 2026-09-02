@@ -622,14 +622,16 @@ function parsePrimeTimetablePage(pageItems, className) {
     const SKIP = new Set(['P1','P2','P3','P4','P5','P6','Break','Break 2','Prayer',
         'Sunday','Monday','Tuesday','Wednesday','Thursday','2025-2026','2026-2027','Co',
         'Assessment','Advising']);
-    // Teacher: must have a DOT (initial.Lastname) — no re.I to avoid matching subject words
-    // Also matches known single-name teachers
+    // Known full teacher names from PrimeTimetable PDFs (updated from PDF imports)
+    const KNOWN_TEACHER_NAMES = new Set(['Abduljalil Kiwan','Abdulkhaliq Alghamdi','Abdulrahman Aljilani','Abdulrahman Alzahrani','Adam Griss','Ahmed Albaz','Ahmed Almaghrabi','Ahmed Hemida','Alaa Hussein','Aladdin Alferjani','Ali Saleh','Anthony Khalil','Counselor','Fahad Hakami','Fuad BinYoussef','Georges Ibrahim','Hussam','Ibrahim Alqurashi','Imran Asghar','Junaid Golandaz','Majed Alofi','Mark Moe','Mogamad Lukie','Mohammad Akhtar','Mohammad Alghamdi','Mohammad Korkomaz','Mohammad Zafar','Mohammed Abdulfattah','Mohammed Fahruddin','Mohammed Hilmi','Mohammed Ismail','Mohammed Ramadan','Mohammed Saleh','Nader Abouzeid','Nasir Malik','Nihma Almawla','Omar Abdouni','Omar Alkunaydri','Osama Althuwaybi','Rayan Ashgan','Said Hussain','Saleh Alattas','Shayan Siddiqui','Shujaat Shah','Sleiman Alkarim','Sohaib Liaquat','Souhaim Najah','Yamen Zahreddine']);
+    // Teacher regex: dot-initial (old format) OR known full name from set
     const TEACHER_RE = /^[A-Z][A-Za-z]*\.\s*[A-Z]|^Hussam$/;
+    const isKnownTeacher = s => KNOWN_TEACHER_NAMES.has(s.trim());
     const LOC_RE = /^(ICT Lab|Lab\s*\d*|Court\s*\d*|Library|Options|\d+\s*(Blue|Green|Orange|Red|Yellow|Purple))/i;
 
     const isTime = s => TIME_RE.test(s.trim());
     const isSkip = s => SKIP.has(s.trim()) || /^20\d\d/.test(s.trim());
-    const isTeacher = s => TEACHER_RE.test(s.trim());
+    const isTeacher = s => TEACHER_RE.test(s.trim()) || isKnownTeacher(s);
     const isLoc = s => LOC_RE.test(s.trim());
     const isSubject = s => {
         s = s.trim();
@@ -678,7 +680,7 @@ function parsePrimeTimetablePage(pageItems, className) {
     const flush = day => {
         const s = st[day];
         if (s.subject && s.teacher && s.start && s.end && s.start !== s.end && s.teacher !== 'Co') {
-            const t = s.teacher.replace(/([A-Za-z])\.([A-Za-z])/g,'$1. $2');
+            const t = isKnownTeacher(s.teacher) ? s.teacher : s.teacher.replace(/([A-Za-z])\.([A-Za-z])/g,'$1. $2');
             entries.push({ teacher:t, subject:s.subject, day, start:fmtT(s.start), end:fmtT(s.end),
                            location:s.location||className, _class:className });
         }
