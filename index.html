@@ -12904,12 +12904,117 @@ const TeachersSchedulesSection = ({ currentUser, lang }) => {
   const subCol = s=>{const t=(s||'').toLowerCase();if(/math/.test(t))return SUBJ_COLORS.math;if(/eng/.test(t))return SUBJ_COLORS.english;if(/sci|bio|chem|phys|environ/.test(t))return SUBJ_COLORS.sci;if(/arb/.test(t))return SUBJ_COLORS.arabic;if(/isl/.test(t))return SUBJ_COLORS.isl;if(/ict|computer|digital/.test(t))return SUBJ_COLORS.ict;if(/p\.?e|physical ed/.test(t))return SUBJ_COLORS.pe;if(/art/.test(t))return SUBJ_COLORS.art;if(/social|studies/.test(t))return SUBJ_COLORS.soc;if(/business|econom/.test(t))return SUBJ_COLORS.biz;if(/geog|travel|tourism/.test(t))return SUBJ_COLORS.geo;if(/psych/.test(t))return SUBJ_COLORS.psych;if(/french/.test(t))return SUBJ_COLORS.fr;return SUBJ_COLORS.def;};
 
   // PDF parser
-  // ── PDF PARSER v2 — coordinate-aware, handles both teacher-view and class-view PDFs ──
-  // Key insight: day columns are identified by X position, not text labels.
-  // The 5 school days (Sun–Thu) each occupy a distinct x-range in the PDF.
-  // Times are always HH:MM without AM/PM; school runs 08:00–14:30 so anything
-  // below 07:00 in parsed minutes is impossible — we know the schedule runs
-  // morning to early afternoon, so we just store raw HH:MM minutes directly.
+
+  // ═══════════════════════════════════════════════════════════════
+  // PDF PARSER v3 — coordinate-aware, handles teacher-view & class-view
+  // Both PDF formats share identical 5-column layout:
+  //   Day headers (y≈98): Sun x=145, Mon x=275, Tue x=406, Wed x=530, Thu x=667
+  //   Time items:         Sun x≈99,  Mon x≈230, Tue x≈362, Wed x≈493, Thu x≈625
+  //   Content items sit between time-col x and next day-header x
+  //   Times < 07:xx are PM (school runs 08:00–14:30); add 12h to those
+  // ═══════════════════════════════════════════════════════════════
+  const PDF_COLS = [
+    {tx:99,  cx1:139, cx2:228, day:'sun'},
+    {tx:230, cx1:270, cx2:358, day:'mon'},
+    {tx:362, cx1:402, cx2:490, day:'tue'},
+    {tx:493, cx1:533, cx2:622, day:'wed'},
+    {tx:625, cx1:660, cx2:800, day:'thu'},
+  ];
+  const PDF_SUBJECTS = new Set([
+    'mathematics','math','english','science','biology','chemistry','physics',
+    'arabic','islamic','ict','computer','art','physical','physicsal','education',
+    'social','geography','french','psychology','business','efl','esl','travel',
+    'tourism','environmental','global','perspectives','digital','advising',
+    'assessment','library','p.e','pe'
+  ]);
+
+  const pdfFixTime = t => {
+    const [h,m] = t.split(':').map(Number);
+    return (h<7 ? h+12 : h)*60 + m;
+  };
+
+  const pdfXtoCol = x => {
+    let best=null, bestD=999;
+    for(const c of PDF_COLS){ const d=Math.abs(c.tx-x); if(d<bestD){bestD=d;best=c;} }
+    return bestD<25 ? best : null;
+  };
+
+  const pdfIsSubject = s => {
+    if(!s||s.length<2) return false;
+    const l=s.toLowerCase();
+    if(PDF_SUBJECTS.has(l)) return true;
+    // Capitalized word, no dots, not a class code, not a number
+    return /^[A-Z][a-z]{2,}$/.test(s) && !/^\d/.test(s) && !/\./.test(s);
+  };
+
+  const pdfParsePage = words => {
+    const TIME_RE=/^\d{1,2}:\d{2}$/;
+    const CLASS_RE=/^\d{1,2}[BGORbgor]$/;
+    const LOC_RE=/^(Lab|Court|Library|ICT|Options|Room)/i;
+
+    // Extract section name from header (y<65)
+    const headerTxt = words.filter(w=>w.top<65).sort((a,b)=>a.x-b.x).map(w=>w.str).join(' ');
+    const hm = headerTxt.match(/Boys\s*[-–]\s*(.+?)(?:\s*[-–]\s*Prime\s+Timetable.*)?$/i);
+    if(!hm) return [];
+    let sectionName = hm[1].trim().replace(/\s*\(\d+\)$/,'').trim();
+    const isClass = /^\d{1,2}[BGORbgor]$/.test(sectionName);
+
+    // Group time items by column
+    const colTimes = {sun:[],mon:[],tue:[],wed:[],thu:[]};
+    for(const w of words){
+      if(TIME_RE.test(w.str)){
+        const col=pdfXtoCol(w.x);
+        if(col) colTimes[col.day].push({y:w.top,t:w.str});
+      }
+    }
+
+    // Get content words in a day's content column within a y range
+    const getContent = (day, y1, y2) => {
+      const col=PDF_COLS.find(c=>c.day===day);
+      if(!col) return [];
+      return words
+        .filter(w=>w.x>=col.cx1-5&&w.x<=col.cx2+5&&w.top>=y1-3&&w.top<=y2+3&&!TIME_RE.test(w.str))
+        .sort((a,b)=>a.top-b.top);
+    };
+
+    const entries=[];
+    for(const day of ['sun','mon','tue','wed','thu']){
+      const times=colTimes[day].sort((a,b)=>a.y-b.y);
+      let i=0;
+      while(i<times.length-1){
+        const {y:y1,t:t1}=times[i], {y:y2,t:t2}=times[i+1];
+        if(y2-y1>2 && y2-y1<80){
+          const sm=pdfFixTime(t1), em=pdfFixTime(t2);
+          if(sm===em){i++;continue;}
+          const items=getContent(day,y1-2,y2+2);
+          let subj='',teacher='',cls='',loc='';
+          const tchParts=[];
+          for(const w of items){
+            const s=w.str;
+            if(!cls&&CLASS_RE.test(s)){cls=s;continue;}
+            if(!loc&&LOC_RE.test(s)){loc=s;continue;}
+            // Teacher initial: "N." or "M.Hilmi"
+            if(/^[A-Z]\.$/.test(s)||/^[A-Z]\.[A-Z]/.test(s)){tchParts.push(s);continue;}
+            // Surname following initial
+            if(tchParts.length&&/^[A-Z][a-z]+$/.test(s)&&!pdfIsSubject(s)){tchParts.push(s);continue;}
+            // Subject
+            if(!subj&&pdfIsSubject(s)){subj=s;continue;}
+          }
+          teacher=tchParts.join(' ');
+          if(loc&&teacher.includes(loc))teacher=teacher.replace(loc,'').trim();
+          if(isClass&&!cls)cls=sectionName;
+          if(!isClass&&!teacher)teacher=sectionName;
+          if(subj||(cls&&cls!==teacher)){
+            entries.push({teacher:teacher||sectionName,subject:subj||'(Class)',
+              classGroup:cls,location:loc,day,startMin:sm,endMin:em});
+          }
+          i+=2;
+        } else { i++; }
+      }
+    }
+    return entries;
+  };
+
   const handlePDF = async e => {
     const file=e.target.files[0];if(!file)return;e.target.value='';
     setBusy(true);setStatus('Loading PDF...');
@@ -12923,172 +13028,21 @@ const TeachersSchedulesSection = ({ currentUser, lang }) => {
       for(let p=1;p<=doc.numPages;p++){
         const pg=await doc.getPage(p);
         const tc=await pg.getTextContent();
-        // Keep full x,y info for every text item
-        const items=tc.items
-          .map(it=>({str:it.str.trim(),x:it.transform[4],y:it.transform[5],w:it.width}))
-          .filter(it=>it.str);
-        const pageEntries=parsePDFPage(items);
-        allEntries.push(...pageEntries);
+        // Build word list: merge adjacent items on same baseline into words
+        const raw=tc.items.map(it=>({str:it.str.trim(),x:it.transform[4],top:pg.view[3]-it.transform[5]-it.height})).filter(it=>it.str);
+        allEntries.push(...pdfParsePage(raw));
       }
-      // Deduplicate exact duplicates (same teacher+day+start+end+subject+class)
+      // Deduplicate exact duplicates
       const seen=new Set();
       const unique=allEntries.filter(e=>{
-        const k=e.teacher+'|'+e.day+'|'+e.startMin+'|'+e.endMin+'|'+e.subject+'|'+e.classGroup;
-        if(seen.has(k))return false;seen.add(k);return true;
+        const k=`${e.teacher}|${e.day}|${e.startMin}|${e.endMin}|${e.subject}|${e.classGroup}`;
+        if(seen.has(k))return false; seen.add(k); return true;
       });
-      if(unique.length===0){setStatus('⚠️ Parser found 0 entries. Try Paste Text — copy all text from the PDF and paste it there.');setBusy(false);return;}
-      setPreview({entries:unique,name:file.name});setStatus(`✅ Found ${unique.length} slots`);
+      if(unique.length===0){setStatus('⚠️ 0 entries parsed. Use Paste Text instead — copy all PDF text and paste it.');setBusy(false);return;}
+      setPreview({entries:unique,name:file.name});
+      setStatus(`✅ Found ${unique.length} slots`);
     }catch(err){console.error(err);setStatus('❌ '+err.message);}
     setBusy(false);
-  };
-
-  const parsePDFPage = (items) => {
-    const out=[];
-    if(!items.length)return out;
-
-    // ── Step 1: Find the section header (teacher name or class code) ──
-    // "Waad Academy- Boys - NAME" appears near the top of each page
-    let sectionName='';
-    for(const it of items){
-      const m=it.str.match(/Waad\s+Academy[-–\s]+Boys[-–\s]+(.+)$/i);
-      if(m){
-        sectionName=m[1].trim()
-          .replace(/\s*-\s*Prime\s+Timetable.*/i,'')
-          .replace(/\s*\(\d+\)$/,'').trim();
-        break;
-      }
-    }
-    if(!sectionName)return out;
-
-    // ── Step 2: Determine if this is a class-view or teacher-view page ──
-    const isClassPage=/^\d{1,2}[BGORbgor]$/.test(sectionName);
-
-    // ── Step 3: Find day column x-boundaries ──
-    // The day headers "Sunday","Monday",... appear in the PDF near the top.
-    // We detect their x positions and use them to bucket all other items.
-    const DAY_NAMES=['Sunday','Monday','Tuesday','Wednesday','Thursday'];
-    const DAY_KEYS_L=['sun','mon','tue','wed','thu'];
-    const dayHeaders=[];
-    for(const it of items){
-      const di=DAY_NAMES.findIndex(d=>it.str===d||it.str.toLowerCase()===d.toLowerCase());
-      if(di>=0)dayHeaders.push({day:DAY_KEYS_L[di],x:it.x,idx:di});
-    }
-    // Sort by x position
-    dayHeaders.sort((a,b)=>a.x-b.x);
-
-    // Build x-range boundaries for each day column
-    // Each day owns x from its left edge to the next day's left edge
-    const dayBounds=dayHeaders.map((dh,i)=>({
-      day:dh.day,
-      xMin:dh.x-10,
-      xMax:i+1<dayHeaders.length?dayHeaders[i+1].x-10:Infinity
-    }));
-
-    // If we couldn't find day headers by name, fall back to dividing page into 5 equal columns
-    if(dayBounds.length===0){
-      const xs=items.map(it=>it.x);
-      const minX=Math.min(...xs),maxX=Math.max(...xs);
-      const colW=(maxX-minX)/5;
-      for(let i=0;i<5;i++){
-        dayBounds.push({day:DAY_KEYS_L[i],xMin:minX+i*colW,xMax:minX+(i+1)*colW});
-      }
-    }
-
-    // ── Step 4: Assign each item to a day column ──
-    const getDay=x=>{
-      const b=dayBounds.find(b=>x>=b.xMin&&x<b.xMax);
-      return b?b.day:'';
-    };
-
-    // ── Step 5: Find all time pairs (HH:MM + HH:MM stacked vertically) ──
-    // Times appear in the PDF as two separate items close in x, stacked in y
-    const TIME_RE=/^\d{1,2}:\d{2}$/;
-    const timeItems=items.filter(it=>TIME_RE.test(it.str));
-
-    // Group time items by x-column (±15px tolerance = same column)
-    const timeCols=[];
-    for(const ti of timeItems){
-      let col=timeCols.find(c=>Math.abs(c.x-ti.x)<20);
-      if(!col){col={x:ti.x,items:[]};timeCols.push(col);}
-      col.items.push(ti);
-    }
-
-    // Within each column, sort by y descending (top of page = higher y in PDF coords)
-    timeCols.forEach(c=>c.items.sort((a,b)=>b.y-a.y));
-
-    // ── Step 6: For each time column, pair consecutive times as start/end ──
-    for(const col of timeCols){
-      const day=getDay(col.x);
-      const tis=col.items;
-      for(let i=0;i+1<tis.length;i++){
-        const t1=tis[i],t2=tis[i+1];
-        // Two times are a start/end pair if they are vertically close (within ~30 pts)
-        // and t1 > t2 in y (t1 is above t2, i.e. t1.y > t2.y in PDF coords)
-        if(t1.y-t2.y>5&&t1.y-t2.y<60){
-          const startMin=parseT(t1.str);
-          const endMin=parseT(t2.str);
-          if(startMin===0&&endMin===0)continue;
-          if(startMin>endMin&&endMin>0)continue; // skip reversed times
-
-          // ── Step 7: Find associated labels near this time pair ──
-          // Look for items in the same x-column (±40px) within 80pts above the start time
-          const nearY_top=t1.y+80;
-          const nearY_bot=t2.y-5;
-          const nearX_min=col.x-50;
-          const nearX_max=col.x+120;
-
-          const nearby=items.filter(it=>
-            !TIME_RE.test(it.str)&&
-            it.x>=nearX_min&&it.x<=nearX_max&&
-            it.y>=nearY_bot&&it.y<=nearY_top&&
-            !/^\d{4}-\d{4}$/.test(it.str)&&
-            !/^(Sunday|Monday|Tuesday|Wednesday|Thursday|P\d|Break|Prayer|2025|2026)$/i.test(it.str)
-          ).sort((a,b)=>b.y-a.y);
-
-          let subject='',classGroup='',teacher='',location='';
-          const isClsC=s=>/^\d{1,2}[BGORbgor]$/.test(s);
-          const isLoc=s=>/^(Lab|Court|Library|ICT|Options|Room)/i.test(s);
-          const isTchI=s=>/^[A-Z]\.\s/.test(s)||(s.split(' ').length>=2&&/^[A-Z]/.test(s)&&s.length>4&&s===s.replace(/[^a-zA-Z\s]/g,''));
-
-          for(const nb of nearby){
-            const s=nb.str;
-            if(!classGroup&&isClsC(s)){classGroup=s;continue;}
-            if(!location&&isLoc(s)){location=s;continue;}
-            if(!subject&&!isClsC(s)&&!isLoc(s)&&/^[A-Z]/.test(s)&&s.length>=2){subject=s;continue;}
-          }
-
-          if(isClassPage&&!classGroup)classGroup=sectionName;
-          if(!isClassPage&&!teacher)teacher=sectionName;
-
-          // Only push if we have enough info
-          if((subject||classGroup)&&day){
-            out.push({
-              teacher:teacher||sectionName,
-              subject:subject||'(Class)',
-              classGroup,location,day,
-              startMin,endMin
-            });
-            i++; // skip the end time item
-          }
-        }
-      }
-    }
-    return out;
-  };
-
-  const parseSchedulePDF = txt => {
-    // Fallback text-only parser for pipe-separated paste format
-    const out=[];
-    const lines=txt.split('\n').map(l=>l.trim()).filter(Boolean);
-    for(const line of lines){
-      const p=line.split('|').map(s=>s.trim());
-      if(p.length>=4&&p[0]&&p[2]&&p[3]){
-        const[teacher,day,start,end,subject='',classGroup='',location='']=p;
-        const dk=['sun','mon','tue','wed','thu'].find(d=>day.toLowerCase().startsWith(d))||day.slice(0,3).toLowerCase();
-        out.push({teacher,subject,classGroup,location,day:dk,startMin:parseT(start),endMin:parseT(end)});
-      }
-    }
-    return out;
   };
 
   const confirmImport = async mode => {
@@ -13099,6 +13053,20 @@ const TeachersSchedulesSection = ({ currentUser, lang }) => {
     preview.entries.forEach(e=>{const k=ref.push().key;batch[k]={teacher:e.teacher||'',subject:e.subject||'',classGroup:e.classGroup||'',location:e.location||'',day:e.day||'sun',startMin:e.startMin||0,endMin:e.endMin||0,importedAt:Date.now()};});
     await ref.update(batch);
     setStatus(`✅ Saved ${preview.entries.length} entries`);setPreview(null);setBusy(false);
+  };
+
+  const parseSchedulePDF = txt => {
+    const out=[];
+    const lines=txt.split('\n').map(l=>l.trim()).filter(Boolean);
+    for(const line of lines){
+      const p=line.split('|').map(s=>s.trim());
+      if(p.length>=4&&p[0]&&p[2]&&p[3]){
+        const[teacher,day,start,end,subject='',classGroup='',location='']=p;
+        const dk=['sun','mon','tue','wed','thu'].find(d=>day.toLowerCase().startsWith(d))||day.slice(0,3).toLowerCase();
+        out.push({teacher,subject,classGroup,location,day:dk,startMin:pdfFixTime(start),endMin:pdfFixTime(end)});
+      }
+    }
+    return out;
   };
 
   const importPaste = async () => {
