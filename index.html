@@ -9227,57 +9227,6 @@ function StaffMod({ data, sv, up, user, lang, L }) {
     const allStaff = Object.values(data.staff || {});
     const active = data.activeUsers || {};
     const allTeachers = Object.values(data.teachers || {});
-
-    // ── Fix Teacher Names ─────────────────────────────────────
-    const [fixRunning, setFixRunning] = React.useState(false);
-    const [fixDone, setFixDone] = React.useState(false);
-    const [fixLog, setFixLog] = React.useState('');
-    const PDF_NAMES = ["Abduljalil Kiwan","Abdulkhaliq Alghamdi","Abdulrahman Aljilani","Abdulrahman Alzahrani","Adam Griss","Ahmed Albaz","Ahmed Almaghrabi","Ahmed Hemida","Alaa Hussein","Aladdin Alferjani","Ali Saleh","Anthony Khalil","Fahad Hakami","Fuad BinYoussef","Georges Ibrahim","Hussam","Ibrahim Alqurashi","Imran Asghar","Junaid Golandaz","Majed Alofi","Mark Moe","Mogamad Lukie","Mohammad Akhtar","Mohammad Alghamdi","Mohammad Korkomaz","Mohammad Zafar","Mohammed Abdulfattah","Mohammed Fahruddin","Mohammed Hilmi","Mohammed Ismail","Mohammed Ramadan","Mohammed Saleh","Nader Abouzeid","Nasir Malik","Nihma Almawla","Omar Abdouni","Omar Alkunaydri","Osama Althuwaybi","Rayan Ashgan","Said Hussain","Saleh Alattas","Shayan Siddiqui","Shujaat Shah","Sleiman Alkarim","Sohaib Liaquat","Souhaim Najah","Yamen Zahreddine"];
-    const SKIP_NAMES = ["bilal omar harb","junaid alam","fares nagadi","fahed alnajebi","motasem namazi","mohammed alsayid","mohammed alsamadani"];
-    const cln = s => (s||'').toLowerCase().replace(/\.| /g,' ').replace(/\.+/g,' ').replace(/\s+/g,' ').trim();
-    const bestPdfMatch = abbr => {
-        const ac=cln(abbr), ap=ac.split(' ');
-        const aInit=(ap[0]||'')[0]||'', aLast=ap[ap.length-1]||'';
-        let best=null, bestScore=0;
-        for(const fn of PDF_NAMES){
-            const fc=cln(fn), fp=fc.split(' ');
-            const fInit=(fp[0]||'')[0]||'', fLast=fp[fp.length-1]||'';
-            let score=0;
-            if(fc===ac) score=100;
-            else if(fc.includes(ac)||ac.includes(fc)) score=90;
-            else{
-                if(aInit===fInit&&aLast===fLast&&aLast.length>2) score=88;
-                else if(aLast===fLast&&aLast.length>4) score=80;
-                else if(ap.some(t=>t.length>3&&fp.includes(t))) score=70;
-            }
-            if(score>bestScore){bestScore=score;best=fn;}
-        }
-        return bestScore>=70?{name:best,score:bestScore}:null;
-    };
-    const runFixNames = async () => {
-        const toFix = allTeachers.filter(t => {
-            const cur=(t.name||'').trim();
-            if(SKIP_NAMES.includes(cln(cur))) return false;
-            if(PDF_NAMES.includes(cur)) return false;
-            return !!bestPdfMatch(cur);
-        });
-        if(!toFix.length){ alert('All teacher names already match PDF names!'); return; }
-        const preview = toFix.slice(0,5).map(t => `"${t.name}" → "${bestPdfMatch(t.name).name}"`).join('\n') + (toFix.length>5?`\n...and ${toFix.length-5} more`:'');
-        if(!window.confirm(`Fix ${toFix.length} teacher name(s)?\n\n${preview}`)) return;
-        setFixRunning(true); setFixLog(''); let ok=0,fail=0;
-        for(const t of toFix){
-            const m=bestPdfMatch(t.name);
-            if(!m) continue;
-            try{
-                await db.ref('/btpro/teachers/'+t.id).update({name:m.name});
-                setFixLog(p=>p+`✅ "${t.name}" → "${m.name}"\n`);
-                ok++;
-            }catch(e){ setFixLog(p=>p+`❌ ${t.name}: ${e.message}\n`); fail++; }
-        }
-        setFixLog(p=>p+`\nDone: ${ok} updated, ${fail} failed.`);
-        setFixRunning(false); setFixDone(true);
-    };
-    // ─────────────────────────────────────────────────────────
     const staff = allStaff.filter(s => { const q = staffSearch.trim().toLowerCase(); if (!q)
         return true; return (s.name || '').toLowerCase().includes(q) || (s.nameAr || '').includes(staffSearch.trim()) || (s.role || '').toLowerCase().includes(q); });
     const teachers = allTeachers.filter(t => { const q = teacherSearch.trim().toLowerCase(); if (!q)
@@ -9477,13 +9426,6 @@ function StaffMod({ data, sv, up, user, lang, L }) {
             React.createElement("div", { style: { display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' } },
                 React.createElement("button", { className: "btn btnp", onClick: () => setShowAddT(true) }, isAr ? '+ إضافة معلم' : '+ Add Teacher'),
                 React.createElement("button", { className: "btn btng", onClick: exportTeachersCSV },
-                React.createElement("button", {
-                    className: "btn bsm",
-                    style: {background: fixDone?'#16a34a':'#f59e0b', color:'#fff', fontWeight:700},
-                    onClick: runFixNames,
-                    disabled: fixRunning,
-                    title: "Matches abbreviated names (A. Griss) to full PDF names (Adam Griss)"
-                }, fixRunning ? '⏳ Fixing...' : fixDone ? '✅ Names Fixed!' : '🔧 Fix Names → Full PDF Names'),
                     "\u2B07 ",
                     isAr ? 'تصدير CSV' : 'Export CSV'),
                 React.createElement("button", { className: "btn btng", onClick: printTeachersList },
@@ -9491,7 +9433,6 @@ function StaffMod({ data, sv, up, user, lang, L }) {
                     isAr ? 'طباعة القائمة' : 'Print List'),
                 React.createElement("div", { style: { flex: 1, minWidth: 200, maxWidth: 320 }, className: "sb" },
                     React.createElement("input", { placeholder: isAr ? 'ابحث عن معلم بالاسم أو المادة أو البريد…' : 'Search teachers by name, subject, or email…', value: teacherSearch, onChange: e => setTeacherSearch(e.target.value) })),
-                fixLog && React.createElement('div', { style:{background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:8,padding:'10px 14px',marginBottom:10,fontFamily:'monospace',fontSize:11,whiteSpace:'pre-wrap',maxHeight:140,overflowY:'auto',color:'#14532d',width:'100%'} }, fixLog),
                 teacherSearch && React.createElement("span", { style: { fontSize: 12, color: '#64748b' } },
                     teachers.length,
                     " ",
@@ -11778,23 +11719,35 @@ function TDSchedule({ data, teachers, isAr }) {
                             onCommit: records => {
                                 const upd={}, nameToId={}, tGrades={}, tSubjects={}, newTObjs={};
                                 let cntAdded=0,cntUpdated=0,cntSkipped=0;
+                                // Use teacher full name as Firebase key (consistent with official importer)
+                                const nameKey = name => name.trim(); // full name, e.g. "Adam Griss"
                                 records.forEach(r => {
                                     let tid=r.teacherId;
-                                    if(r.newTeacher){ const nk=r.newTeacher.name.toLowerCase().trim(); if(!nameToId[nk]){ nameToId[nk]=r.newTeacher.id; newTObjs[r.newTeacher.id]=r.newTeacher; } tid=nameToId[nk]; }
-                                    if(!tGrades[tid]) tGrades[tid]=new Set();
-                                    if(!tSubjects[tid]) tSubjects[tid]=new Set();
-                                    const existing=Object.values(sched[tid]||{});
+                                    let tName='';
+                                    if(r.newTeacher){
+                                        const nk=r.newTeacher.name.toLowerCase().trim();
+                                        if(!nameToId[nk]){ nameToId[nk]=r.newTeacher.id; newTObjs[r.newTeacher.id]=r.newTeacher; }
+                                        tid=nameToId[nk]; tName=r.newTeacher.name;
+                                    } else {
+                                        const t=teachers.find(x=>x.id===tid);
+                                        tName=t?t.name:tid;
+                                    }
+                                    // Use teacher name as schedule key (matches external importer format)
+                                    const schedKey = nameKey(tName);
+                                    if(!tGrades[schedKey]) tGrades[schedKey]=new Set();
+                                    if(!tSubjects[schedKey]) tSubjects[schedKey]=new Set();
+                                    const existing=Object.values(sched[schedKey]||sched[tid]||{});
                                     const dup=existing.find(e=>e.day===r.entry.day&&e.start===r.entry.start&&e.end===r.entry.end&&e.label===r.entry.label&&(e.location||'').trim()===(r.entry.location||'').trim());
                                     if(dup){ cntSkipped++; return; }
                                     const sameSlot=existing.find(e=>e.day===r.entry.day&&e.start===r.entry.start&&e.end===r.entry.end);
-                                    if(sameSlot){ upd[`/btpro/teacherSchedule/${tid}/${sameSlot.id}`]={...r.entry,id:sameSlot.id}; cntUpdated++; }
-                                    else { upd[`/btpro/teacherSchedule/${tid}/${r.entry.id}`]=r.entry; cntAdded++; }
+                                    if(sameSlot){ upd[`/btpro/teacherSchedule/${schedKey}/${sameSlot.id}`]={...r.entry,id:sameSlot.id}; cntUpdated++; }
+                                    else { upd[`/btpro/teacherSchedule/${schedKey}/${r.entry.id}`]=r.entry; cntAdded++; }
                                     const gm=(r.entry.location||'').match(/^(\d+)\s/);
-                                    if(gm) tGrades[tid].add('G'+gm[1]);
-                                    if(r.entry.label&&r.entry.type==='class'){ const subj=r.entry.label.replace(/\s+G\d+.*/,'').trim(); if(subj) tSubjects[tid].add(subj); }
+                                    if(gm) tGrades[schedKey].add('G'+gm[1]);
+                                    if(r.entry.label&&r.entry.type==='class'){ const subj=r.entry.label.replace(/\s+G\d+.*/,'').trim(); if(subj) tSubjects[schedKey].add(subj); }
                                 });
-                                Object.entries(newTObjs).forEach(([tid,nt])=>{ const g=[...(tGrades[tid]||new Set())].sort(); const s=[...(tSubjects[tid]||new Set())].sort(); upd[`/btpro/teachers/${tid}`]={...nt,grades:g,subjects:s}; });
-                                Object.entries(tGrades).forEach(([tid,grades])=>{ if(newTObjs[tid]) return; const t=teachers.find(x=>x.id===tid); if(!t) return; const mg=[...new Set([...(t.grades||[]),...grades])].sort(); const ms=[...new Set([...(t.subjects||[]),...(tSubjects[tid]||new Set())])].sort(); upd[`/btpro/teachers/${tid}/grades`]=mg; upd[`/btpro/teachers/${tid}/subjects`]=ms; });
+                                Object.entries(newTObjs).forEach(([tid,nt])=>{ const g=[...(tGrades[nt.name]||new Set())].sort(); const s=[...(tSubjects[nt.name]||new Set())].sort(); upd[`/btpro/teachers/${tid}`]={...nt,grades:g,subjects:s}; });
+                                Object.entries(tGrades).forEach(([schedKey,grades])=>{ const t=teachers.find(x=>x.name.trim()===schedKey.trim()); if(!t) return; const mg=[...new Set([...(t.grades||[]),...grades])].sort(); const ms=[...new Set([...(t.subjects||[]),...(tSubjects[schedKey]||new Set())])].sort(); upd[`/btpro/teachers/${t.id}/grades`]=mg; upd[`/btpro/teachers/${t.id}/subjects`]=ms; });
                                 if(Object.keys(upd).length>0) db.ref('/').update(upd);
                                 alert(`✅ Import complete:\n• ${cntAdded} slot(s) added\n• ${cntUpdated} slot(s) updated\n• ${cntSkipped} duplicate(s) skipped`);
                             }
