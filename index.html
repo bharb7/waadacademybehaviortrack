@@ -1124,6 +1124,8 @@ const canSeeTab = (data, role, tabId, staffId) => {
     const effectiveId = TAB_PARENT_MAP[tabId] || tabId;
     if (role === 'Administrator')
         return true; // Administrator always retains full access so permissions can never lock everyone out.
+    if (effectiveId === 'teacherschedules')
+        return true; // Teachers Schedules is always visible to all staff.
     if (role !== 'Teacher') {
         const sp = getStaffPerm(data, staffId);
         if (sp)
