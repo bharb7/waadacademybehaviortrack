@@ -615,28 +615,41 @@ const fmtT = t => { const p = t.split(':'); return `${p[0].padStart(2, '0')}:${p
 // Fully tested state-machine approach — 100% accuracy on all PDF test cases.
 // Key fixes: mandatory-dot teacher regex (no re.I), header_y boundary (not maxY-80),
 // per-column state machine that flushes on new subject, handles Library/Lab2 locations.
-function parsePrimeTimetablePage(pageItems, className) {
+// parsePrimeTimetablePage — dual-mode parser:
+// • class-view PDFs (pageTeacher=null): cells contain "Subject → Teacher → [Loc] → Start → End"
+// • teacher-view PDFs (pageTeacher=string): cells contain "Class → Subject → [Loc] → Start → End"
+//   The teacher name comes from the page header, NOT from cell content.
+function parsePrimeTimetablePage(pageItems, className, pageTeacher) {
     const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday'];
     const DAY_CODE = {Sunday:'Sun',Monday:'Mon',Tuesday:'Tue',Wednesday:'Wed',Thursday:'Thu'};
     const TIME_RE = /^\d{1,2}:\d{2}$/;
     const SKIP = new Set(['P1','P2','P3','P4','P5','P6','Break','Break 2','Prayer',
         'Sunday','Monday','Tuesday','Wednesday','Thursday','2025-2026','2026-2027','Co',
         'Assessment','Advising']);
-    // Known full teacher names from PrimeTimetable PDFs (updated from PDF imports)
     const KNOWN_TEACHER_NAMES = new Set(['Abduljalil Kiwan','Abdulkhaliq Alghamdi','Abdulrahman Aljilani','Abdulrahman Alzahrani','Adam Griss','Ahmed Albaz','Ahmed Almaghrabi','Ahmed Hemida','Alaa Hussein','Aladdin Alferjani','Ali Saleh','Anthony Khalil','Counselor','Fahad Hakami','Fuad BinYoussef','Georges Ibrahim','Hussam','Ibrahim Alqurashi','Imran Asghar','Junaid Golandaz','Majed Alofi','Mark Moe','Mogamad Lukie','Mohammad Akhtar','Mohammad Alghamdi','Mohammad Korkomaz','Mohammad Zafar','Mohammed Abdulfattah','Mohammed Fahruddin','Mohammed Hilmi','Mohammed Ismail','Mohammed Ramadan','Mohammed Saleh','Nader Abouzeid','Nasir Malik','Nihma Almawla','Omar Abdouni','Omar Alkunaydri','Osama Althuwaybi','Rayan Ashgan','Said Hussain','Saleh Alattas','Shayan Siddiqui','Shujaat Shah','Sleiman Alkarim','Sohaib Liaquat','Souhaim Najah','Yamen Zahreddine']);
-    // Teacher regex: dot-initial (old format) OR known full name from set
     const TEACHER_RE = /^[A-Z][A-Za-z]*\.\s*[A-Z]|^Hussam$/;
-    const isKnownTeacher = s => KNOWN_TEACHER_NAMES.has(s.trim());
+    const CLASS_RE = /^\d+[A-Z]$/;          // e.g. 7B, 4G, 12O
     const LOC_RE = /^(ICT Lab|Lab\s*\d*|Court\s*\d*|Library|Options|\d+\s*(Blue|Green|Orange|Red|Yellow|Purple))/i;
 
     const isTime = s => TIME_RE.test(s.trim());
     const isSkip = s => SKIP.has(s.trim()) || /^20\d\d/.test(s.trim());
+    const isKnownTeacher = s => KNOWN_TEACHER_NAMES.has(s.trim());
     const isTeacher = s => TEACHER_RE.test(s.trim()) || isKnownTeacher(s);
+    const isClass = s => CLASS_RE.test(s.trim());
     const isLoc = s => LOC_RE.test(s.trim());
+
+    // In teacher-view mode, a subject is anything that is not a time/skip/class/location/known-teacher
+    // In class-view mode, a subject is anything that is not a time/skip/teacher/location
     const isSubject = s => {
         s = s.trim();
         if (!s || s.length < 2) return false;
-        if (isTime(s) || isSkip(s) || isTeacher(s) || isLoc(s)) return false;
+        if (isTime(s) || isSkip(s) || isLoc(s)) return false;
+        if (pageTeacher) {
+            // teacher-view: class labels are not subjects; known teachers not subjects
+            if (isClass(s) || isKnownTeacher(s)) return false;
+        } else {
+            if (isTeacher(s)) return false;
+        }
         return true;
     };
     const fmtT = t => { const p=t.split(':'); return `${String(p[0]).padStart(2,'0')}:${p[1]}`; };
@@ -679,10 +692,12 @@ function parsePrimeTimetablePage(pageItems, className) {
 
     const flush = day => {
         const s = st[day];
-        if (s.subject && s.teacher && s.start && s.end && s.start !== s.end && s.teacher !== 'Co') {
-            const t = isKnownTeacher(s.teacher) ? s.teacher : s.teacher.replace(/([A-Za-z])\.([A-Za-z])/g,'$1. $2');
-            entries.push({ teacher:t, subject:s.subject, day, start:fmtT(s.start), end:fmtT(s.end),
-                           location:s.location||className, _class:className });
+        const teacher = pageTeacher || s.teacher;
+        const cls = pageTeacher ? (s.cls || 'Unknown') : className;
+        if (s.subject && teacher && s.start && s.end && s.start !== s.end && teacher !== 'Co') {
+            const tName = isKnownTeacher(teacher) ? teacher : teacher.replace(/([A-Za-z])\.([A-Za-z])/g,'$1. $2');
+            entries.push({ teacher:tName, subject:s.subject, day, start:fmtT(s.start), end:fmtT(s.end),
+                           location:s.location||cls, _class:cls });
         }
         st[day] = {};
     };
@@ -691,19 +706,34 @@ function parsePrimeTimetablePage(pageItems, className) {
         const times = row.filter(it => isTime(it.str));
         const texts = row.filter(it => !isTime(it.str));
 
-        // Text items: classify and assign to column state
         for (const it of texts.sort((a,b)=>a.x-b.x)) {
             const day = getDay(it.x);
             if (!day) continue;
             const s = it.str.trim();
             const ds = st[day];
-            if (isSubject(s)) {
-                if (ds.end) flush(day);           // flush completed entry first
-                if (!ds.subject) ds.subject = s;  // start new entry
-            } else if (isTeacher(s) && ds.subject && !ds.teacher) {
-                ds.teacher = s;
-            } else if (isLoc(s) && ds.subject && ds.teacher && !ds.start && !ds.location) {
-                ds.location = s;
+
+            if (pageTeacher) {
+                // Teacher-view mode: class → subject → [location]
+                if (isClass(s)) {
+                    // New class label = new entry for this teacher
+                    if (ds.end) flush(day);
+                    if (!ds.cls) { ds.cls = s; ds.teacher = pageTeacher; }
+                    else if (ds.cls && ds.subject) { flush(day); ds.cls = s; ds.teacher = pageTeacher; }
+                } else if (isSubject(s) && ds.cls && !ds.subject) {
+                    ds.subject = s;
+                } else if (isLoc(s) && ds.subject && !ds.start && !ds.location) {
+                    ds.location = s;
+                }
+            } else {
+                // Class-view mode: subject → teacher → [location]
+                if (isSubject(s)) {
+                    if (ds.end) flush(day);
+                    if (!ds.subject) ds.subject = s;
+                } else if (isTeacher(s) && ds.subject && !ds.teacher) {
+                    ds.teacher = s;
+                } else if (isLoc(s) && ds.subject && ds.teacher && !ds.start && !ds.location) {
+                    ds.location = s;
+                }
             }
         }
 
@@ -713,13 +743,18 @@ function parsePrimeTimetablePage(pageItems, className) {
             if (!day) continue;
             const s = it.str.trim();
             const ds = st[day];
-            if (!ds.subject || !ds.teacher) continue;
+            const hasEntry = pageTeacher ? (ds.cls && ds.subject) : (ds.subject && ds.teacher);
+            if (!hasEntry) continue;
             if (!ds.start) { ds.start = s; }
             else if (!ds.end) { ds.end = s; flush(day); }
         }
     }
     // Flush any remaining complete entries
-    DAYS.forEach(day => { if (st[day].subject && st[day].end) flush(day); });
+    DAYS.forEach(day => {
+        const ds = st[day];
+        const hasEntry = pageTeacher ? (ds.cls && ds.subject) : (ds.subject && ds.teacher);
+        if (hasEntry && ds.end) flush(day);
+    });
 
     return entries;
 }
@@ -888,12 +923,31 @@ const readPdfRows = file => new Promise((resolve, reject) => {
                     const items = content.items
                         .filter(it => it.str && it.str.trim())
                         .map(it => ({str:it.str.trim(), x:Math.round(it.transform[4]), y:Math.round(it.transform[5])}));
-                    // Extract class name from page title (highest Y items)
+                    // Extract page title from highest-Y items
                     const maxY = Math.max(...items.map(it => it.y));
                     const titleStr = items.filter(it => it.y > maxY-60).map(it => it.str).join(' ');
-                    const clsM = titleStr.match(/\b(\d+[A-Z])\b/);
-                    const className = clsM ? clsM[1] : 'Unknown';
-                    const pageEntries = parsePrimeTimetablePage(items, className);
+                    // Detect PDF format:
+                    // Teacher-view: "Waad Academy- Boys - Mohammed Hilmi" → teacher name after last "-"
+                    // Class-view:   "Waad Academy- Boys - 7B" → class code after last "-"
+                    const teacherViewM = titleStr.match(/Waad\s+Academy[-\s]+Boys\s*[-–]\s*([A-Za-z][A-Za-z\s]+[A-Za-z])(?:\s|$)/i);
+                    const classViewM = titleStr.match(/\b(\d+[A-Z])\b/);
+                    // If the matched name looks like a teacher (contains a space = first+last name, or is a known single name)
+                    const SINGLE_NAME_TEACHERS = new Set(['Hussam','Counselor']);
+                    let pageTeacher = null;
+                    let className = 'Unknown';
+                    if (teacherViewM) {
+                        const candidate = teacherViewM[1].trim();
+                        // It's a teacher-view page if the title has a person name (space-separated or known single)
+                        if (candidate.includes(' ') || SINGLE_NAME_TEACHERS.has(candidate)) {
+                            pageTeacher = candidate;
+                            className = 'Unknown'; // class comes from cell content
+                        } else if (classViewM) {
+                            className = classViewM[1];
+                        }
+                    } else if (classViewM) {
+                        className = classViewM[1];
+                    }
+                    const pageEntries = parsePrimeTimetablePage(items, className, pageTeacher);
                     pageEntries.forEach(e => allEntries.push(e));
                 }
                 resolve(allEntries);
