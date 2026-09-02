@@ -652,7 +652,7 @@ function parsePrimeTimetablePage(pageItems, className, pageTeacher) {
         }
         return true;
     };
-    const fmtT = t => { const p=t.split(':'); return `${String(p[0]).padStart(2,'0')}:${p[1]}`; };
+    const fmtT = t => { const p=t.split(':'); const h=parseInt(p[0],10); const hh=(h<7?h+12:h); return `${String(hh).padStart(2,'0')}:${p[1]}`; };
 
     // Detect day header items and their Y position
     const headerItems = pageItems.filter(it => DAY_NAMES.includes(it.str))
@@ -660,13 +660,49 @@ function parsePrimeTimetablePage(pageItems, className, pageTeacher) {
     if (headerItems.length < 3) return [];
     const headerY = Math.min(...headerItems.map(it => it.y));
 
-    // Build day column X-bounds
-    const cols = {};
+    // Build day column X-bounds from headers (initial)
+    const headerCols = {};
     headerItems.forEach((hit, i) => {
         const lo = i===0 ? 0 : (headerItems[i-1].x + hit.x)/2;
         const hi = i===headerItems.length-1 ? 9999 : (hit.x + headerItems[i+1].x)/2;
-        cols[DAY_CODE[hit.str]] = {lo, hi};
+        headerCols[DAY_CODE[hit.str]] = {lo, hi, headerX: hit.x};
     });
+    // FIX: Detect actual time column X positions from the first major time row
+    // (a row where ≥4 time values appear). In PrimeTimetable PDFs, the time boxes
+    // are centered on fixed X columns (Sun≈99, Mon≈230, Tue≈362, Wed≈493, Thu≈625)
+    // but the day HEADERS are shifted right (Thu header at x≈668 ≠ Thu time at x≈625).
+    // We must remap column bounds using actual time positions, not header positions.
+    const allTimes = pageItems.filter(it => TIME_RE.test(it.str.trim()));
+    const timeYGroups = {};
+    allTimes.forEach(it => {
+        const yk = Math.round(it.y/8)*8;
+        if(!timeYGroups[yk]) timeYGroups[yk] = [];
+        timeYGroups[yk].push(it);
+    });
+    const majorTimeRow = Object.values(timeYGroups)
+        .filter(g => g.length >= 4)
+        .sort((a,b) => b[0].y - a[0].y)[0]; // top-most major row
+    const cols = {};
+    if (majorTimeRow && majorTimeRow.length >= headerItems.length) {
+        // Sort time columns left→right and map to day order (Sun→Mon→Tue→Wed→Thu)
+        const sortedTimeX = majorTimeRow.map(it=>it.x).sort((a,b)=>a-b);
+        const sortedDays = [...headerItems].sort((a,b)=>a.x-b.x).map(h=>DAY_CODE[h.str]);
+        sortedDays.forEach((day, i) => {
+            if(i < sortedTimeX.length) {
+                const tx = sortedTimeX[i];
+                const prevTx = i>0 ? sortedTimeX[i-1] : tx-100;
+                const nextTx = i+1<sortedTimeX.length ? sortedTimeX[i+1] : tx+100;
+                cols[day] = {
+                    lo: (prevTx+tx)/2,
+                    hi: (tx+nextTx)/2
+                };
+            }
+        });
+    }
+    // Fallback to header-based bounds if time detection failed
+    if(Object.keys(cols).length < 3) {
+        Object.assign(cols, headerCols);
+    }
     const DAYS = DAY_NAMES.map(d=>DAY_CODE[d]).filter(d=>cols[d]);
     const getDay = x => { for (const [d,{lo,hi}] of Object.entries(cols)) if (x>=lo&&x<hi) return d; return null; };
 
