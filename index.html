@@ -660,49 +660,13 @@ function parsePrimeTimetablePage(pageItems, className, pageTeacher) {
     if (headerItems.length < 3) return [];
     const headerY = Math.min(...headerItems.map(it => it.y));
 
-    // Build day column X-bounds from headers (initial)
-    const headerCols = {};
+    // Build day column X-bounds
+    const cols = {};
     headerItems.forEach((hit, i) => {
         const lo = i===0 ? 0 : (headerItems[i-1].x + hit.x)/2;
         const hi = i===headerItems.length-1 ? 9999 : (hit.x + headerItems[i+1].x)/2;
-        headerCols[DAY_CODE[hit.str]] = {lo, hi, headerX: hit.x};
+        cols[DAY_CODE[hit.str]] = {lo, hi};
     });
-    // FIX: Detect actual time column X positions from the first major time row
-    // (a row where ≥4 time values appear). In PrimeTimetable PDFs, the time boxes
-    // are centered on fixed X columns (Sun≈99, Mon≈230, Tue≈362, Wed≈493, Thu≈625)
-    // but the day HEADERS are shifted right (Thu header at x≈668 ≠ Thu time at x≈625).
-    // We must remap column bounds using actual time positions, not header positions.
-    const allTimes = pageItems.filter(it => TIME_RE.test(it.str.trim()));
-    const timeYGroups = {};
-    allTimes.forEach(it => {
-        const yk = Math.round(it.y/8)*8;
-        if(!timeYGroups[yk]) timeYGroups[yk] = [];
-        timeYGroups[yk].push(it);
-    });
-    const majorTimeRow = Object.values(timeYGroups)
-        .filter(g => g.length >= 4)
-        .sort((a,b) => b[0].y - a[0].y)[0]; // top-most major row
-    const cols = {};
-    if (majorTimeRow && majorTimeRow.length >= headerItems.length) {
-        // Sort time columns left→right and map to day order (Sun→Mon→Tue→Wed→Thu)
-        const sortedTimeX = majorTimeRow.map(it=>it.x).sort((a,b)=>a-b);
-        const sortedDays = [...headerItems].sort((a,b)=>a.x-b.x).map(h=>DAY_CODE[h.str]);
-        sortedDays.forEach((day, i) => {
-            if(i < sortedTimeX.length) {
-                const tx = sortedTimeX[i];
-                const prevTx = i>0 ? sortedTimeX[i-1] : tx-100;
-                const nextTx = i+1<sortedTimeX.length ? sortedTimeX[i+1] : tx+100;
-                cols[day] = {
-                    lo: (prevTx+tx)/2,
-                    hi: (tx+nextTx)/2
-                };
-            }
-        });
-    }
-    // Fallback to header-based bounds if time detection failed
-    if(Object.keys(cols).length < 3) {
-        Object.assign(cols, headerCols);
-    }
     const DAYS = DAY_NAMES.map(d=>DAY_CODE[d]).filter(d=>cols[d]);
     const getDay = x => { for (const [d,{lo,hi}] of Object.entries(cols)) if (x>=lo&&x<hi) return d; return null; };
 
@@ -738,30 +702,100 @@ function parsePrimeTimetablePage(pageItems, className, pageTeacher) {
         st[day] = {};
     };
 
+    // pendingStart[day] holds a time token seen before the class label for that day.
+    // This handles PrimeTimetable Pattern A: TIME → CLASS → SUBJECT → TIME
+    const pendingStart = {};
+    DAYS.forEach(d => { pendingStart[d] = null; });
+
     for (const row of yRows) {
         const times = row.filter(it => isTime(it.str));
         const texts = row.filter(it => !isTime(it.str));
 
-        for (const it of texts.sort((a,b)=>a.x-b.x)) {
-            const day = getDay(it.x);
-            if (!day) continue;
-            const s = it.str.trim();
-            const ds = st[day];
+        if (pageTeacher) {
+            // ── Teacher-view: per-day handling to cope with time+class co-occurrence ──
+            // Group all items in this row by their column day.
+            const dayBuckets = {};
+            DAYS.forEach(d => { dayBuckets[d] = {times:[], texts:[]}; });
+            times.forEach(it => { const d = getDay(it.x); if (d) dayBuckets[d].times.push(it); });
+            texts.forEach(it => { const d = getDay(it.x); if (d) dayBuckets[d].texts.push(it); });
 
-            if (pageTeacher) {
-                // Teacher-view mode: class → subject → [location]
-                if (isClass(s)) {
-                    // New class label = new entry for this teacher
+            for (const day of DAYS) {
+                const {times: dTimes, texts: dTexts} = dayBuckets[day];
+                if (!dTimes.length && !dTexts.length) continue;
+
+                const ds = st[day];
+                const classItems = dTexts.filter(it => isClass(it.str.trim()));
+                const subjItems  = dTexts.filter(it => isSubject(it.str.trim()) && !isClass(it.str.trim()));
+                const locItems   = dTexts.filter(it => isLoc(it.str.trim()));
+                const hasClass   = classItems.length > 0;
+                const hasTime    = dTimes.length > 0;
+                const timeVal    = hasTime ? dTimes[0].str.trim() : null;
+
+                if (hasClass && hasTime) {
+                    // Pattern B: class + time in same row.
+                    // The time closes the previous slot AND opens a new one.
+                    if (ds.cls && ds.subject && ds.start) {
+                        ds.end = timeVal; flush(day);
+                    } else if (ds.cls || ds.subject) {
+                        flush(day); // discard incomplete
+                    }
+                    st[day].cls     = classItems[0].str.trim();
+                    st[day].teacher = pageTeacher;
+                    st[day].start   = timeVal;
+                    pendingStart[day] = null;
+                    if (subjItems.length) st[day].subject = subjItems[0].str.trim();
+
+                } else if (hasClass && !hasTime) {
+                    // Class arrives without a time → Pattern A (time was in previous row)
+                    const pStart = pendingStart[day];
                     if (ds.end) flush(day);
-                    if (!ds.cls) { ds.cls = s; ds.teacher = pageTeacher; }
-                    else if (ds.cls && ds.subject) { flush(day); ds.cls = s; ds.teacher = pageTeacher; }
-                } else if (isSubject(s) && ds.cls && !ds.subject) {
-                    ds.subject = s;
-                } else if (isLoc(s) && ds.subject && !ds.start && !ds.location) {
-                    ds.location = s;
+                    if (!ds.cls) {
+                        ds.cls     = classItems[0].str.trim();
+                        ds.teacher = pageTeacher;
+                        if (pStart && !ds.start) { ds.start = pStart; pendingStart[day] = null; }
+                    } else if (ds.cls && ds.subject) {
+                        flush(day);
+                        ds.cls     = classItems[0].str.trim();
+                        ds.teacher = pageTeacher;
+                        if (pStart && !ds.start) { ds.start = pStart; pendingStart[day] = null; }
+                    }
+
+                } else if (hasTime && !hasClass) {
+                    // Time arrives without a class — could be:
+                    // (a) pendingStart for the NEXT class (Pattern A), or
+                    // (b) end of current slot, or
+                    // (c) start of current slot (if class+subject already set)
+                    for (const it of dTimes.sort((a,b)=>a.x-b.x)) {
+                        const s = it.str.trim();
+                        if (ds.cls && ds.subject) {
+                            // Slot is open — this time is start or end
+                            if (!ds.start) { ds.start = s; }
+                            else if (!ds.end) { ds.end = s; flush(day); }
+                        } else {
+                            // No slot open yet — save as pending start for next class
+                            pendingStart[day] = s;
+                        }
+                    }
                 }
-            } else {
-                // Class-view mode: subject → teacher → [location]
+
+                // Subjects (when no class in this row — just the subject arriving)
+                if (!hasClass) {
+                    for (const it of subjItems) {
+                        if (ds.cls && !ds.subject) ds.subject = it.str.trim();
+                    }
+                }
+                // Locations
+                for (const it of locItems) {
+                    if (ds.subject && !ds.start && !ds.location) ds.location = it.str.trim();
+                }
+            }
+        } else {
+            // ── Class-view mode: subject → teacher → [location] → time → time ──
+            for (const it of texts.sort((a,b)=>a.x-b.x)) {
+                const day = getDay(it.x);
+                if (!day) continue;
+                const s = it.str.trim();
+                const ds = st[day];
                 if (isSubject(s)) {
                     if (ds.end) flush(day);
                     if (!ds.subject) ds.subject = s;
@@ -771,18 +805,15 @@ function parsePrimeTimetablePage(pageItems, className, pageTeacher) {
                     ds.location = s;
                 }
             }
-        }
-
-        // Time items: assign start/end, flush when complete
-        for (const it of times.sort((a,b)=>a.x-b.x)) {
-            const day = getDay(it.x);
-            if (!day) continue;
-            const s = it.str.trim();
-            const ds = st[day];
-            const hasEntry = pageTeacher ? (ds.cls && ds.subject) : (ds.subject && ds.teacher);
-            if (!hasEntry) continue;
-            if (!ds.start) { ds.start = s; }
-            else if (!ds.end) { ds.end = s; flush(day); }
+            for (const it of times.sort((a,b)=>a.x-b.x)) {
+                const day = getDay(it.x);
+                if (!day) continue;
+                const s = it.str.trim();
+                const ds = st[day];
+                if (!(ds.subject && ds.teacher)) continue;
+                if (!ds.start) { ds.start = s; }
+                else if (!ds.end) { ds.end = s; flush(day); }
+            }
         }
     }
     // Flush any remaining complete entries
