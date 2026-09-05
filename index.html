@@ -12961,8 +12961,32 @@ const TeachersSchedulesSection = ({ currentUser, lang }) => {
   }, []);
 
   React.useEffect(() => {
-    const ref = firebase.database().ref('/btpro/teacherSchedules2');
-    const h = snap => { const v=snap.val()||{}; setEntries(Object.entries(v).map(([id,d])=>({id,...d}))); };
+    // Read from /btpro/teacherSchedule/{teacherName}/{entryId}
+    // Format: {id, day:'Sun', start:'08:00', end:'09:00', label, location, type}
+    const ref = firebase.database().ref('/btpro/teacherSchedule');
+    const parseT = t => { if(!t) return 0; const [h,m]=(t||'00:00').split(':').map(Number); return (h||0)*60+(m||0); };
+    const lcDay = d => d?d.toLowerCase():d;
+    const h = snap => {
+      const v=snap.val()||{};
+      const list=[];
+      Object.entries(v).forEach(([teacherName, slots]) => {
+        if(!slots||typeof slots!=='object') return;
+        Object.entries(slots).forEach(([id, e]) => {
+          if(!e||typeof e!=='object') return;
+          list.push({
+            id,
+            teacher: e.teacher || teacherName,
+            subject: e.label || e.subject || '',
+            classGroup: e.location || e.classGroup || '',
+            location: e.location || '',
+            day: lcDay(e.day || 'sun'),
+            startMin: parseT(e.start),
+            endMin: parseT(e.end)
+          });
+        });
+      });
+      setEntries(list);
+    };
     ref.on('value',h); return ()=>ref.off('value',h);
   }, []);
 
@@ -13107,9 +13131,8 @@ const TeachersSchedulesSection = ({ currentUser, lang }) => {
     try{
       // Use the main fixed parser (parsePrimeTimetablePage / readPdfRows)
       const rawEntries = await readPdfRows(file);
-      // rawEntries come as: {teacher, subject, day, start, end, location, _class}
-      // Convert to teacherSchedules2-style (startMin, endMin, classGroup)
-      const parseT = t => { const [h,m]=(t||'00:00').split(':').map(Number); return h*60+m; };
+      // rawEntries: {teacher, subject, day:'Sun', start:'08:00', end:'09:00', location, _class}
+      const parseT = t => { const [h,m]=(t||'00:00').split(':').map(Number); return (h||0)*60+(m||0); };
       const unique=[];
       const seen=new Set();
       for(const e of rawEntries){
@@ -13120,7 +13143,7 @@ const TeachersSchedulesSection = ({ currentUser, lang }) => {
           subject: e.subject||'',
           classGroup: e.location||e._class||'',
           location: '',
-          day: e.day||'Sun',
+          day: (e.day||'Sun').toLowerCase(),
           startMin: parseT(e.start),
           endMin: parseT(e.end)
         });
@@ -13134,20 +13157,21 @@ const TeachersSchedulesSection = ({ currentUser, lang }) => {
 
   const confirmImport = async mode => {
     if(!preview)return;setBusy(true);setStatus('Saving...');
-    // Save to /btpro/teacherSchedule/{teacherName}/{id} in the format the display expects
+    // Save to /btpro/teacherSchedule/{teacherName}/{id} — the format the display reads
     const fmtMin = m => { const h=Math.floor(m/60); const mn=m%60; return `${String(h).padStart(2,'0')}:${String(mn).padStart(2,'0')}`; };
     const capDay = d => d?d.charAt(0).toUpperCase()+d.slice(1).toLowerCase():'Sun';
-    const uid = () => firebase.database().ref('/btpro/teacherSchedule').push().key;
+    const newKey = () => firebase.database().ref('/btpro/teacherSchedule').push().key;
     if(mode==='replace') await firebase.database().ref('/btpro/teacherSchedule').remove();
     const batch={};
     preview.entries.forEach(e=>{
       const tName=(e.teacher||'Unknown').trim();
-      const id=uid();
-      const start=fmtMin(e.startMin||0);
-      const end=fmtMin(e.endMin||0);
-      const label=e.subject||(e.classGroup?'Class':'Slot');
-      const location=e.classGroup||e.location||'';
-      batch[`/btpro/teacherSchedule/${tName}/${id}`]={id,day:capDay(e.day||'sun'),start,end,type:'class',label,location};
+      const id=newKey();
+      batch[`/btpro/teacherSchedule/${tName}/${id}`]={
+        id, day:capDay(e.day||'sun'),
+        start:fmtMin(e.startMin||0), end:fmtMin(e.endMin||0),
+        type:'class', label:e.subject||(e.classGroup?'Class':'Slot'),
+        location:e.classGroup||''
+      };
     });
     await firebase.database().ref('/').update(batch);
     setStatus(`✅ Saved ${preview.entries.length} entries`);setPreview(null);setBusy(false);
@@ -13176,14 +13200,27 @@ const TeachersSchedulesSection = ({ currentUser, lang }) => {
 
   const saveForm = async () => {
     if(!form.teacher||!form.subject)return;
-    const data={teacher:form.teacher.trim(),subject:form.subject.trim(),classGroup:form.classGroup.trim(),location:form.location.trim(),day:form.day,startMin:parseT(form.start),endMin:parseT(form.end),updatedAt:Date.now()};
-    if(editItem)await firebase.database().ref('/btpro/teacherSchedules2/'+editItem.id).update(data);
-    else await firebase.database().ref('/btpro/teacherSchedules2').push(data);
+    const fmtMin = m => { const h=Math.floor(m/60); const mn=m%60; return `${String(h).padStart(2,'0')}:${String(mn).padStart(2,'0')}`; };
+    const capDay = d => d?d.charAt(0).toUpperCase()+d.slice(1).toLowerCase():'Sun';
+    const parseT2 = t => { const [h,m]=(t||'00:00').split(':').map(Number); return (h||0)*60+(m||0); };
+    const tName=form.teacher.trim();
+    const day=capDay(form.day||'sun');
+    const start=fmtMin(parseT2(form.start)); const end=fmtMin(parseT2(form.end));
+    const label=form.subject.trim(); const location=form.classGroup.trim();
+    if(editItem){
+      // editItem.id is the Firebase key under teacherSchedule/{teacherName}/{id}
+      // We need to find which teacher key this is under - use editItem.teacher
+      const oldTeacher=(editItem.teacher||tName).trim();
+      await firebase.database().ref(`/btpro/teacherSchedule/${oldTeacher}/${editItem.id}`).update({id:editItem.id,day,start,end,type:'class',label,location,teacher:tName});
+    } else {
+      const id=firebase.database().ref('/btpro/teacherSchedule').push().key;
+      await firebase.database().ref(`/btpro/teacherSchedule/${tName}/${id}`).set({id,day,start,end,type:'class',label,location});
+    }
     setEditItem(null);setShowAdd(false);setForm({teacher:'',subject:'',classGroup:'',location:'',day:'sun',start:'08:00',end:'09:00'});
   };
 
-  const deleteSlot = async id=>{if(!window.confirm('Delete this slot?'))return;await firebase.database().ref('/btpro/teacherSchedules2/'+id).remove();};
-  const clearAll   = async ()=>{if(!window.confirm('Delete ALL schedule data? This cannot be undone.'))return;await firebase.database().ref('/btpro/teacherSchedules2').remove();};
+  const deleteSlot = async e=>{if(!window.confirm('Delete this slot?'))return;const tName=(e.teacher||'Unknown').trim();await firebase.database().ref(`/btpro/teacherSchedule/${tName}/${e.id}`).remove();};
+  const clearAll   = async ()=>{if(!window.confirm('Delete ALL schedule data? This cannot be undone.'))return;await firebase.database().ref('/btpro/teacherSchedule').remove();};
 
   const fld=(k,v)=>setForm(f=>({...f,[k]:v}));
   const R=React.createElement;
@@ -13347,7 +13384,7 @@ const TeachersSchedulesSection = ({ currentUser, lang }) => {
                   R('div',{style:{color:'#64748b',fontSize:10,marginTop:2}},`${fmtM(e.startMin)} – ${fmtM(e.endMin)}`),
                   isAdmin&&R('div',{style:{display:'flex',gap:3,marginTop:4}},
                     R('button',{onClick:()=>{setEditItem(e);setForm({teacher:e.teacher,subject:e.subject,classGroup:e.classGroup,location:e.location,day:e.day,start:toInp(e.startMin),end:toInp(e.endMin)});},style:{fontSize:10,padding:'1px 5px',background:'#dbeafe',color:'#1d4ed8',border:'none',borderRadius:3,cursor:'pointer',fontFamily:'inherit'}},isAr?'تعديل':'Edit'),
-                    R('button',{onClick:()=>deleteSlot(e.id),style:{fontSize:10,padding:'1px 5px',background:'#fee2e2',color:'#dc2626',border:'none',borderRadius:3,cursor:'pointer',fontFamily:'inherit'}},'✕')
+                    R('button',{onClick:()=>deleteSlot(e),style:{fontSize:10,padding:'1px 5px',background:'#fee2e2',color:'#dc2626',border:'none',borderRadius:3,cursor:'pointer',fontFamily:'inherit'}},'✕')
                   )
                 );
               }))
