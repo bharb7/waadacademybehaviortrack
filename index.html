@@ -765,6 +765,13 @@ function parsePrimeTimetablePage(pageItems, className, pageTeacher) {
                     // (a) pendingStart for the NEXT class (Pattern A), or
                     // (b) end of current slot, or
                     // (c) start of current slot (if class+subject already set)
+                    //
+                    // FIX: In teacher-view PDFs, subject text often appears in the SAME ROW
+                    // as the end-time (e.g. "09:20 Geo." row closes "12G Geo. 08:40-09:20").
+                    // Process subjects BEFORE times so the slot can be closed correctly.
+                    if (ds.cls && !ds.subject && subjItems.length) {
+                        ds.subject = subjItems[0].str.trim();
+                    }
                     for (const it of dTimes.sort((a,b)=>a.x-b.x)) {
                         const s = it.str.trim();
                         if (ds.cls && ds.subject) {
