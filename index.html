@@ -13105,25 +13105,26 @@ const TeachersSchedulesSection = ({ currentUser, lang }) => {
     const file=e.target.files[0];if(!file)return;e.target.value='';
     setBusy(true);setStatus('Loading PDF...');
     try{
-      if(!window.pdfjsLib)throw new Error('pdf.js not loaded');
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      const ab=await file.arrayBuffer();
-      const doc=await window.pdfjsLib.getDocument({data:ab}).promise;
-      setStatus(`Reading ${doc.numPages} pages...`);
-      const allEntries=[];
-      for(let p=1;p<=doc.numPages;p++){
-        const pg=await doc.getPage(p);
-        const tc=await pg.getTextContent();
-        // Build word list: merge adjacent items on same baseline into words
-        const raw=tc.items.map(it=>({str:it.str.trim(),x:it.transform[4],top:pg.view[3]-it.transform[5]-it.height})).filter(it=>it.str);
-        allEntries.push(...pdfParsePage(raw));
-      }
-      // Deduplicate exact duplicates
+      // Use the main fixed parser (parsePrimeTimetablePage / readPdfRows)
+      const rawEntries = await readPdfRows(file);
+      // rawEntries come as: {teacher, subject, day, start, end, location, _class}
+      // Convert to teacherSchedules2-style (startMin, endMin, classGroup)
+      const parseT = t => { const [h,m]=(t||'00:00').split(':').map(Number); return h*60+m; };
+      const unique=[];
       const seen=new Set();
-      const unique=allEntries.filter(e=>{
-        const k=`${e.teacher}|${e.day}|${e.startMin}|${e.endMin}|${e.subject}|${e.classGroup}`;
-        if(seen.has(k))return false; seen.add(k); return true;
-      });
+      for(const e of rawEntries){
+        const k=`${e.teacher||''}|${e.day}|${e.start}|${e.end}|${e.subject}|${e.location||''}`;
+        if(seen.has(k)) continue; seen.add(k);
+        unique.push({
+          teacher: e.teacher||'',
+          subject: e.subject||'',
+          classGroup: e.location||e._class||'',
+          location: '',
+          day: e.day||'Sun',
+          startMin: parseT(e.start),
+          endMin: parseT(e.end)
+        });
+      }
       if(unique.length===0){setStatus('⚠️ 0 entries parsed. Use Paste Text instead — copy all PDF text and paste it.');setBusy(false);return;}
       setPreview({entries:unique,name:file.name});
       setStatus(`✅ Found ${unique.length} slots`);
@@ -13133,11 +13134,22 @@ const TeachersSchedulesSection = ({ currentUser, lang }) => {
 
   const confirmImport = async mode => {
     if(!preview)return;setBusy(true);setStatus('Saving...');
-    const ref=firebase.database().ref('/btpro/teacherSchedules2');
-    if(mode==='replace')await ref.remove();
+    // Save to /btpro/teacherSchedule/{teacherName}/{id} in the format the display expects
+    const fmtMin = m => { const h=Math.floor(m/60); const mn=m%60; return `${String(h).padStart(2,'0')}:${String(mn).padStart(2,'0')}`; };
+    const capDay = d => d?d.charAt(0).toUpperCase()+d.slice(1).toLowerCase():'Sun';
+    const uid = () => firebase.database().ref('/btpro/teacherSchedule').push().key;
+    if(mode==='replace') await firebase.database().ref('/btpro/teacherSchedule').remove();
     const batch={};
-    preview.entries.forEach(e=>{const k=ref.push().key;batch[k]={teacher:e.teacher||'',subject:e.subject||'',classGroup:e.classGroup||'',location:e.location||'',day:e.day||'sun',startMin:e.startMin||0,endMin:e.endMin||0,importedAt:Date.now()};});
-    await ref.update(batch);
+    preview.entries.forEach(e=>{
+      const tName=(e.teacher||'Unknown').trim();
+      const id=uid();
+      const start=fmtMin(e.startMin||0);
+      const end=fmtMin(e.endMin||0);
+      const label=e.subject||(e.classGroup?'Class':'Slot');
+      const location=e.classGroup||e.location||'';
+      batch[`/btpro/teacherSchedule/${tName}/${id}`]={id,day:capDay(e.day||'sun'),start,end,type:'class',label,location};
+    });
+    await firebase.database().ref('/').update(batch);
     setStatus(`✅ Saved ${preview.entries.length} entries`);setPreview(null);setBusy(false);
   };
 
