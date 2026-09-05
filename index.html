@@ -11683,7 +11683,8 @@ function TDSchedule({ data, teachers, isAr }) {
                             )
                         ),
                         // 5-day grid
-                        React.createElement('div', { style:{display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:8} },
+                        React.createElement('div', { style:{overflowX:'auto', WebkitOverflowScrolling:'touch'} },
+                        React.createElement('div', { style:{display:'grid', gridTemplateColumns:'repeat(5,minmax(140px,1fr))', gap:8, minWidth:720} },
                             DAYS.map(d => {
                                 const dayEntries = entries.filter(e => e.day === d).sort((a,b) => timeToMin(a.start)-timeToMin(b.start));
                                 return React.createElement('div', { key:d, style:{background:'#f8fafc', borderRadius:8, padding:8, minHeight:80} },
@@ -11701,7 +11702,7 @@ function TDSchedule({ data, teachers, isAr }) {
                                     ))
                                 );
                             })
-                        ),
+                        )),
 
                         // Add/Edit form
                         React.createElement('div', { style:{marginTop:14, paddingTop:14, borderTop:'1px solid #e2e8f0'} },
@@ -11854,7 +11855,8 @@ function TDSchedule({ data, teachers, isAr }) {
                     const entries = (classIndex[selClass]||[]);
                     return React.createElement('div', { className:'card' },
                         React.createElement('div', { style:{fontWeight:700,fontSize:15,marginBottom:12} }, `🏫 ${selClass} — ${isAr?'الجدول الأسبوعي':'Weekly Schedule'}`),
-                        React.createElement('div', { style:{display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:8} },
+                        React.createElement('div', { style:{overflowX:'auto', WebkitOverflowScrolling:'touch'} },
+                        React.createElement('div', { style:{display:'grid', gridTemplateColumns:'repeat(5,minmax(140px,1fr))', gap:8, minWidth:720} },
                             DAYS.map(d => {
                                 const dayE = entries.filter(e=>e.day===d).sort((a,b)=>timeToMin(a.start)-timeToMin(b.start));
                                 return React.createElement('div', { key:d, style:{background:'#f8fafc',borderRadius:8,padding:8,minHeight:80} },
@@ -11867,7 +11869,7 @@ function TDSchedule({ data, teachers, isAr }) {
                                     ))
                                 );
                             })
-                        )
+                        ))
                     );
                 })(),
                 !selClass && React.createElement('div', { className:'card', style:{textAlign:'center',padding:40,color:'#94a3b8',fontSize:13} }, isAr?'← اختر فصلاً':'← Select a class')
