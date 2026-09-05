@@ -11439,6 +11439,13 @@ function TDSchedule({ data, teachers, isAr }) {
     }, []);
 
     const sched = data.teacherSchedule || {};
+    // getSchedFor: merge entries stored under teacher ID (legacy) and full name (PDF import)
+    const getSchedFor = t => {
+        if (!t) return {};
+        const byId   = sched[t.id]   || {};
+        const byName = sched[t.name && t.name.trim()] || {};
+        return Object.assign({}, byName, byId); // byId wins on duplicate keys
+    };
 
     // ── Helpers ──
     const timeToMin = t => {
@@ -11460,7 +11467,7 @@ function TDSchedule({ data, teachers, isAr }) {
     const dayLabel = d => isAr ? (DAYS_AR[d] || d) : (DAYS_LABEL[d] || d);
 
     const currentEntry = (tid) => {
-        const entries = Object.values(sched[tid] || {});
+        const entries = Object.values(getSchedFor(teachers.find(x=>x.id===tid)) || {});
         const today = todayKey();
         const nm = nowMin();
         return entries.find(e => e.day === today && timeToMin(e.start) <= nm && timeToMin(e.end) > nm) || null;
@@ -11471,14 +11478,17 @@ function TDSchedule({ data, teachers, isAr }) {
     const isRealClass = loc => CLASS_LOC_RE.test((loc || '').trim());
     const classIndex = React.useMemo(() => {
         const idx = {};
-        Object.entries(sched).forEach(([tid, entries]) => {
-            const t = teachers.find(x => x.id === tid);
-            if (!t) return;
-            Object.values(entries).forEach(e => {
+        // Build a merged view: for each teacher, combine entries from ID-keyed and name-keyed paths
+        teachers.forEach(t => {
+            const entries = Object.values(getSchedFor(t));
+            entries.forEach(e => {
                 const loc = (e.location || '').trim();
                 if (!loc || !isRealClass(loc)) return;
                 if (!idx[loc]) idx[loc] = [];
-                idx[loc].push({ teacher: t, day: e.day, start: e.start, end: e.end, label: e.label, type: e.type, location: loc, id: e.id, tid });
+                // Avoid duplicates (same entry stored under both ID and name keys)
+                if (!idx[loc].find(x => x.id === e.id && x.teacher.id === t.id)) {
+                    idx[loc].push({ teacher: t, day: e.day, start: e.start, end: e.end, label: e.label, type: e.type, location: loc, id: e.id, tid: t.id });
+                }
             });
         });
         return idx;
@@ -11493,7 +11503,7 @@ function TDSchedule({ data, teachers, isAr }) {
     // ── Teacher filters ──
     const filteredTeachers = teachers.filter(t => t.name.toLowerCase().includes(tSearch.toLowerCase()));
     const teachersByGrade = gradeFilter
-        ? teachers.filter(t => (t.grades || []).includes('G' + gradeFilter) || Object.values(sched[t.id] || {}).some(e => (e.location || '').startsWith(gradeFilter + ' ')))
+        ? teachers.filter(t => (t.grades || []).includes('G' + gradeFilter) || Object.values(getSchedFor(t)).some(e => (e.location || '').startsWith(gradeFilter + ' ')))
         : teachers;
 
     // ── Locator search results ──
@@ -11506,7 +11516,7 @@ function TDSchedule({ data, teachers, isAr }) {
             .filter(t => t.name.toLowerCase().includes(q))
             .map(t => {
                 const cur = currentEntry(t.id);
-                const todayEntries = Object.values(sched[t.id] || {}).filter(e => e.day === today).sort((a, b) => timeToMin(a.start) - timeToMin(b.start));
+                const todayEntries = Object.values(getSchedFor(t)).filter(e => e.day === today).sort((a, b) => timeToMin(a.start) - timeToMin(b.start));
                 const next = todayEntries.find(e => timeToMin(e.start) > nm);
                 return { t, cur, next, todayEntries };
             });
@@ -11566,7 +11576,7 @@ function TDSchedule({ data, teachers, isAr }) {
 
     // ── Print helpers ──
     const buildScheduleHtml = (t) => {
-        const entries = Object.values(sched[t.id] || {});
+        const entries = Object.values(getSchedFor(t));
         const byDay = {};
         DAYS.forEach(d => byDay[d] = entries.filter(e => e.day === d).sort((a, b) => timeToMin(a.start) - timeToMin(b.start)));
         const cols = DAYS.map(d => {
@@ -11583,7 +11593,7 @@ function TDSchedule({ data, teachers, isAr }) {
     };
     const printAllSchedules = () => {
         const w = window.open('', '_blank'); if (!w) return;
-        const blocks = teachers.filter(t => sched[t.id] && Object.keys(sched[t.id]).length > 0).map(t => `<div style="page-break-after:always;padding:16px"><h2 style="margin:0 0 4px">${t.name}</h2>${buildScheduleHtml(t)}</div>`).join('');
+        const blocks = teachers.filter(t => Object.keys(getSchedFor(t)).length > 0).map(t => `<div style="page-break-after:always;padding:16px"><h2 style="margin:0 0 4px">${t.name}</h2>${buildScheduleHtml(t)}</div>`).join('');
         w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"/><style>@page{margin:12mm}body{font-family:'Segoe UI',sans-serif;margin:0}@media print{.noprint{display:none}}</style></head><body><div class="noprint" style="padding:12px"><button onclick="window.print()" style="padding:8px 20px;background:#1a73e8;color:#fff;border:none;border-radius:6px;cursor:pointer">🖨 Print All</button></div>${blocks}</body></html>`);
         w.document.close();
     };
@@ -11643,7 +11653,7 @@ function TDSchedule({ data, teachers, isAr }) {
                     ),
                     (gradeFilter ? teachersByGrade : filteredTeachers).filter(t => !tSearch.trim() || t.name.toLowerCase().includes(tSearch.toLowerCase())).map(t => {
                         const cur = currentEntry(t.id);
-                        const hasSchedule = sched[t.id] && Object.keys(sched[t.id]).length > 0;
+                        const hasSchedule = Object.keys(getSchedFor(t)).length > 0;
                         return React.createElement('div', { key:t.id, onClick:()=>pickTeacher(t), style:{ padding:'8px 10px', borderRadius:7, cursor:'pointer', marginBottom:4, background: selT===t.id ? '#eff6ff' : '#f8fafc', border: selT===t.id ? '1.5px solid #1a73e8':'1px solid #e2e8f0' } },
                             React.createElement('div', { style:{fontWeight:600, fontSize:13} }, t.name),
                             React.createElement('div', { style:{fontSize:11, color: cur?'#16a34a':'#94a3b8'} },
@@ -11659,7 +11669,7 @@ function TDSchedule({ data, teachers, isAr }) {
                 selT && (() => {
                     const t = teachers.find(x => x.id === selT);
                     if (!t) return null;
-                    const entries = Object.values(sched[t.id] || {});
+                    const entries = Object.values(getSchedFor(t));
                     return React.createElement('div', { className:'card' },
                         React.createElement('div', { style:{display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:8, marginBottom:12} },
                             React.createElement('div', null,
